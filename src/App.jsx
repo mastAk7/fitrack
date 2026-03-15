@@ -8,6 +8,7 @@ import CoachTab from './components/CoachTab.jsx';
 import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
+import SyncSettings from './components/SyncSettings.jsx';
 import { getDailyBriefing } from './engine/context.js';
 
 const PUSH_DEBOUNCE_MS = 30_000; // push 30s after last change
@@ -20,6 +21,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState('idle');
   const [lastSync, setLastSync] = useState(getLastSyncTime());
   const [dailyBriefing, setDailyBriefing] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
 
   const pushTimer = useRef(null);
   // Store latest maps in refs so beforeunload can access them without stale closure
@@ -117,7 +119,34 @@ export default function App() {
         week={targets.week}
         syncStatus={syncStatus}
         lastSync={lastSync}
+        onSettingsOpen={() => setShowSettings(true)}
       />
+      {showSettings && (
+        <SyncSettings
+          onClose={() => setShowSettings(false)}
+          onSyncNow={() => {
+            setSyncStatus('syncing');
+            pullGist()
+              .then(gistData => {
+                if (gistData) {
+                  const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData);
+                  saveDiet(merged.dietMap); saveWork(merged.workMap); savePlanMods(merged.planMods);
+                  setDietMap(merged.dietMap); setWorkMap(merged.workMap); setPlanMods(merged.planMods);
+                }
+                return pushGist(dietRef.current, workRef.current, modsRef.current);
+              })
+              .then(ok => {
+                setSyncStatus(ok ? 'synced' : 'error');
+                if (ok) setLastSync(new Date().toISOString());
+                setTimeout(() => setSyncStatus('idle'), 2500);
+              })
+              .catch(() => {
+                setSyncStatus('error');
+                setTimeout(() => setSyncStatus('idle'), 3000);
+              });
+          }}
+        />
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {activeTab === 'diet' && (

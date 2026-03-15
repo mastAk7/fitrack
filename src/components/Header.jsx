@@ -12,7 +12,7 @@ const SYNC_META = {
   idle:    { color: '#4a4a5a', label: null },
 };
 
-export default function Header({ phase, week, syncStatus = 'idle', lastSync = null }) {
+export default function Header({ phase, week, syncStatus = 'idle', lastSync = null, onSettingsOpen }) {
   const colors = PHASE_COLORS[phase] || PHASE_COLORS['Ramp Up'];
   const sync = SYNC_META[syncStatus] || SYNC_META.idle;
 
@@ -66,17 +66,27 @@ export default function Header({ phase, week, syncStatus = 'idle', lastSync = nu
         </div>
       </div>
 
-      <div style={{
-        background: colors.bg,
-        color: colors.text,
-        fontSize: 11,
-        fontWeight: 600,
-        padding: '4px 10px',
-        borderRadius: 8,
-        border: `1px solid ${colors.text}30`,
-        letterSpacing: '0.3px',
-      }}>
-        {phase}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          background: colors.bg,
+          color: colors.text,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: '4px 10px',
+          borderRadius: 8,
+          border: `1px solid ${colors.text}30`,
+          letterSpacing: '0.3px',
+        }}>
+          {phase}
+        </div>
+        <button
+          onClick={onSettingsOpen}
+          title="Sync settings"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: '#4a4a5a', fontSize: 16, padding: '4px', lineHeight: 1,
+          }}
+        >⚙</button>
       </div>
     </header>
   );
