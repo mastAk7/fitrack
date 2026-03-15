@@ -5,7 +5,13 @@
       "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm install 2>&1)",
       "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm run build 2>&1)",
       "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && timeout 8 npm run dev 2>&1 || true)",
-      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm run build 2>&1 | tail -6)"
+      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm run build 2>&1 | tail -6)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -30)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -8)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -5)",
+      "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -3)"
     ]
   }
 }

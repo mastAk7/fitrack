@@ -4,6 +4,7 @@ import {
   ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import StatCard from './StatCard.jsx';
+import MuscleAnatomy from './MuscleAnatomy.jsx';
 import { getDailyAggregates, getProteinStreak } from '../engine/adaptive.js';
 
 const RATING_COLORS = {
@@ -243,6 +244,9 @@ export default function AnalyticsTab({ dietMap, workMap, targets }) {
           </div>
         </div>
       </div>
+
+      {/* Muscle anatomy */}
+      <MuscleAnatomy workMap={workMap} />
 
       {/* Meal quality breakdown */}
       {qualityBreakdown.total > 0 && (

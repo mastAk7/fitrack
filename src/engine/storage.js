@@ -1,20 +1,6 @@
-import { DIET_SEEDS, WORKOUT_SEEDS } from '../data/seeds.js';
-
 const DIET_KEY = 'sc_diet3';
 const WORK_KEY = 'sc_work3';
 const PLAN_MODS_KEY = 'sc_plan_mods';
-
-function mergeEntries(arrays) {
-  const map = new Map();
-  for (const arr of arrays) {
-    for (const entry of arr) {
-      if (entry && entry.id !== undefined) {
-        map.set(entry.id, entry);
-      }
-    }
-  }
-  return map;
-}
 
 function readKey(key) {
   try {
@@ -26,24 +12,30 @@ function readKey(key) {
   }
 }
 
+function mergeEntries(arrays) {
+  const map = new Map();
+  for (const arr of arrays) {
+    for (const entry of arr) {
+      if (entry && entry.id !== undefined) map.set(entry.id, entry);
+    }
+  }
+  return map;
+}
+
+/** Migrate legacy keys (sc_diet, sc_diet2 → sc_diet3). No seed injection. */
 export function migrate() {
   try {
-    const dietLegacyKeys = ['sc_diet', 'sc_diet2', 'sc_diet3'];
-    const workLegacyKeys = ['sc_work', 'sc_work2', 'sc_work3'];
+    const dietLegacyKeys = ['sc_diet', 'sc_diet2'];
+    const workLegacyKeys = ['sc_work', 'sc_work2'];
 
     const dietArrays = dietLegacyKeys.map(readKey);
     const workArrays = workLegacyKeys.map(readKey);
 
-    const dietMap = mergeEntries(dietArrays);
-    const workMap = mergeEntries(workArrays);
+    const existingDiet = readKey(DIET_KEY);
+    const existingWork = readKey(WORK_KEY);
 
-    // Inject seeds (only if ID not already present)
-    for (const seed of DIET_SEEDS) {
-      if (!dietMap.has(seed.id)) dietMap.set(seed.id, seed);
-    }
-    for (const seed of WORKOUT_SEEDS) {
-      if (!workMap.has(seed.id)) workMap.set(seed.id, seed);
-    }
+    const dietMap = mergeEntries([...dietArrays, existingDiet]);
+    const workMap = mergeEntries([...workArrays, existingWork]);
 
     localStorage.setItem(DIET_KEY, JSON.stringify([...dietMap.values()]));
     localStorage.setItem(WORK_KEY, JSON.stringify([...workMap.values()]));

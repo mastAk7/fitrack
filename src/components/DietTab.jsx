@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
-import { analyzeMealText, analyzeMealImage } from '../engine/analyzer.js';
+import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
 import { saveDiet } from '../engine/storage.js';
 
 function todayStr() {
@@ -30,6 +30,7 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
   const [text, setText] = useState('');
   const [imageData, setImageData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
 
   // All unique dates with meals, sorted descending
@@ -45,44 +46,63 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
       .sort((a, b) => a.id - b.id);
   }, [dietMap, selectedDate]);
 
-  const dayProtein = dayMeals.reduce((s, e) => s + (e.protein_g || 0), 0);
-  const dayCal = dayMeals.reduce((s, e) => s + (e.calories || 0), 0);
+  const dayProtein = Math.round(dayMeals.reduce((s, e) => s + (e.protein_g || 0), 0) * 10) / 10;
+  const dayCal = Math.round(dayMeals.reduce((s, e) => s + (e.calories || 0), 0));
 
-  async function handleLog() {
+  // Pending = saved but not yet analyzed
+  const pendingMeals = useMemo(() =>
+    [...dietMap.values()].filter(e => e.analyzed === false), [dietMap]);
+
+  function handleLog() {
     if (!text.trim() && !imageData) return;
-    setLoading(true);
+    setError('');
+    const entry = {
+      id: Date.now(),
+      date: selectedDate,
+      time: nowTimeStr(),
+      summary: text.trim() || 'Photo meal',
+      protein_g: 0,
+      calories: 0,
+      rating: 'ok',
+      feedback: '',
+      items: [],
+      analyzed: false,
+      ...(imageData ? { imageData } : {}),
+    };
+    const newMap = new Map(dietMap);
+    newMap.set(entry.id, entry);
+    setDietMap(newMap);
+    saveDiet(newMap);
+    setText('');
+    setImageData(null);
+  }
+
+  async function handleAnalyze() {
+    if (!pendingMeals.length || analyzing) return;
+    setAnalyzing(true);
     setError('');
     try {
-      let result;
-      if (imageData) {
-        result = await analyzeMealImage(imageData, text.trim(), targets.cal);
-      } else {
-        result = await analyzeMealText(text.trim(), targets.cal);
-      }
-
-      const entry = {
-        id: Date.now(),
-        date: selectedDate,
-        time: nowTimeStr(),
-        summary: result.summary || text.trim(),
-        protein_g: result.protein_g,
-        calories: result.calories,
-        rating: result.rating,
-        feedback: result.feedback,
-        items: result.items || [],
-        ...(imageData ? { imageData } : {}),
-      };
-
       const newMap = new Map(dietMap);
-      newMap.set(entry.id, entry);
+      const textMeals = pendingMeals.filter(e => !e.imageData);
+      const imageMeals = pendingMeals.filter(e => !!e.imageData);
+
+      if (textMeals.length > 0) {
+        const results = await analyzeMealsBatch(textMeals, targets.cal);
+        for (const r of results) {
+          const existing = newMap.get(r.id);
+          if (existing) newMap.set(r.id, { ...existing, ...r, analyzed: true });
+        }
+      }
+      for (const e of imageMeals) {
+        const result = await analyzeMealImage(e.imageData, e.summary, targets.cal);
+        newMap.set(e.id, { ...e, ...result, analyzed: true });
+      }
       setDietMap(newMap);
       saveDiet(newMap);
-      setText('');
-      setImageData(null);
     } catch (err) {
-      setError(err.message || 'Failed to log meal');
+      setError(err.message || 'Analysis failed — check API key');
     } finally {
-      setLoading(false);
+      setAnalyzing(false);
     }
   }
 
@@ -176,16 +196,41 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
           />
           <button
             onClick={handleLog}
-            disabled={loading || (!text.trim() && !imageData)}
-            style={logBtnStyle(loading || (!text.trim() && !imageData))}
+            disabled={!text.trim() && !imageData}
+            style={logBtnStyle(!text.trim() && !imageData)}
           >
-            {loading ? 'Analyzing…' : imageData ? '📷 Log Photo' : 'Log Meal'}
+            {imageData ? 'Log Photo' : 'Log Meal'}
           </button>
         </div>
         {error && (
           <div style={{ fontSize: 12, color: '#ff5252', marginTop: 8 }}>{error}</div>
         )}
       </div>
+
+      {/* Analyze banner */}
+      {pendingMeals.length > 0 && (
+        <div style={{ padding: '0 16px 4px', display: 'flex', alignItems: 'center', gap: 10, background: '#0f0f1a', borderBottom: '1px solid #1e1e2a', paddingTop: 10, paddingBottom: 10 }}>
+          <span style={{ fontSize: 12, color: '#7a7a8a', flex: 1 }}>
+            {analyzing ? 'Analyzing…' : `${pendingMeals.length} meal${pendingMeals.length > 1 ? 's' : ''} pending analysis`}
+          </span>
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            style={{
+              background: analyzing ? '#1e1e2a' : '#b388ff',
+              border: 'none',
+              borderRadius: 8,
+              color: analyzing ? '#4a4a5a' : '#0a0a0f',
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '6px 14px',
+              cursor: analyzing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {analyzing ? 'Analyzing…' : 'Analyze'}
+          </button>
+        </div>
+      )}
 
       {/* Meal list */}
       <div style={{ padding: '14px 16px' }}>

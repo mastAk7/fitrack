@@ -135,7 +135,7 @@ export default function App() {
         {activeTab === 'coach' && (
           <CoachTab
             dietMap={dietMap} setDietMap={setDietMap}
-            workMap={workMap}
+            workMap={workMap} setWorkMap={setWorkMap}
             planMods={planMods} setPlanMods={setPlanMods}
             targets={targets}
             dailyBriefing={dailyBriefing}

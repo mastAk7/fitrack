@@ -3,7 +3,8 @@ import ChatBubble from './ChatBubble.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import { callClaudeStream } from '../engine/claude.js';
 import { buildCoachContext } from '../engine/context.js';
-import { saveDiet, savePlanMods } from '../engine/storage.js';
+import { saveDiet, saveWork, savePlanMods } from '../engine/storage.js';
+import { analyzeMealsBatch, analyzeMealImage, extractMusclesBatch } from '../engine/analyzer.js';
 
 const QUICK_PROMPTS = [
   'What to eat right now?',
@@ -43,11 +44,12 @@ function parseAssistantResponse(raw) {
   return { text, workoutMod, mealLog };
 }
 
-export default function CoachTab({ dietMap, setDietMap, workMap, planMods, setPlanMods, targets, dailyBriefing = '' }) {
+export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '' }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [imageData, setImageData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
   const [error, setError] = useState('');
   const bottomRef = useRef(null);
 
@@ -61,6 +63,53 @@ export default function CoachTab({ dietMap, setDietMap, workMap, planMods, setPl
 
     setLoading(true);
     setError('');
+
+    // Auto-analyze any pending meals/workouts before building coach context
+    let freshDietMap = dietMap;
+    let freshWorkMap = workMap;
+
+    const pendingMeals = [...dietMap.values()].filter(e => e.analyzed === false);
+    const pendingWorkouts = [...workMap.values()].filter(w => !w.muscles?.length);
+
+    try {
+      if (pendingMeals.length > 0) {
+        setSyncStatus(`Syncing ${pendingMeals.length} meal${pendingMeals.length > 1 ? 's' : ''}…`);
+        const newDietMap = new Map(dietMap);
+        const textMeals = pendingMeals.filter(e => !e.imageData);
+        const imageMeals = pendingMeals.filter(e => !!e.imageData);
+        if (textMeals.length > 0) {
+          const results = await analyzeMealsBatch(textMeals, targets.cal);
+          for (const r of results) {
+            const existing = newDietMap.get(r.id);
+            if (existing) newDietMap.set(r.id, { ...existing, ...r, analyzed: true });
+          }
+        }
+        for (const e of imageMeals) {
+          const result = await analyzeMealImage(e.imageData, e.summary, targets.cal);
+          newDietMap.set(e.id, { ...e, ...result, analyzed: true });
+        }
+        saveDiet(newDietMap);
+        setDietMap(newDietMap);
+        freshDietMap = newDietMap;
+      }
+
+      if (pendingWorkouts.length > 0) {
+        setSyncStatus(`Syncing ${pendingWorkouts.length} workout${pendingWorkouts.length > 1 ? 's' : ''}…`);
+        const results = await extractMusclesBatch(pendingWorkouts);
+        const newWorkMap = new Map(workMap);
+        for (const r of results) {
+          const existing = newWorkMap.get(r.id);
+          if (existing) newWorkMap.set(r.id, { ...existing, muscles: r.muscles || [] });
+        }
+        saveWork(newWorkMap);
+        setWorkMap(newWorkMap);
+        freshWorkMap = newWorkMap;
+      }
+    } catch {
+      // silently continue — coach still works with partial data
+    } finally {
+      setSyncStatus('');
+    }
 
     // Build user message content
     const userContent = userImage
@@ -90,7 +139,7 @@ export default function CoachTab({ dietMap, setDietMap, workMap, planMods, setPl
     }));
 
     try {
-      const systemPrompt = buildCoachContext(dietMap, workMap, targets, dailyBriefing);
+      const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing);
       let fullText = '';
 
       // Add a streaming placeholder
@@ -323,6 +372,13 @@ export default function CoachTab({ dietMap, setDietMap, workMap, planMods, setPl
               }}
             >{p}</button>
           ))}
+        </div>
+      )}
+
+      {/* Sync status */}
+      {syncStatus && (
+        <div style={{ padding: '6px 16px', fontSize: 11, color: '#b388ff', background: '#13131a', borderTop: '1px solid #1e1e2a' }}>
+          ⟳ {syncStatus}
         </div>
       )}
 

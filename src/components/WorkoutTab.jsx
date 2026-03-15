@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
 import { savePlanMods, saveWork } from '../engine/storage.js';
+import { extractMusclesBatch } from '../engine/analyzer.js';
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
 function yesterdayStr() {
@@ -40,7 +41,9 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
   const [log, setLog] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const planIdx = useMemo(() => dateToplanIndex(selectedDate), [selectedDate]);
   const plan = TRAINING_PLAN[planIdx];
@@ -72,31 +75,53 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
     newMap.delete(id);
     setWorkMap(newMap);
     saveWork(newMap);
+    setConfirmDeleteId(null);
   }
 
-  async function handleSave() {
+  // All workouts with no muscle data (new pending + legacy unanalyzed)
+  const pendingWorkouts = useMemo(() =>
+    [...workMap.values()].filter(w => !w.muscles?.length), [workMap]);
+
+  function handleSave() {
     if (!log.trim()) return;
     setSaving(true);
+    const lines = log.split('\n').map(l => l.trim()).filter(Boolean);
+    const entry = {
+      id: Date.now(),
+      date: selectedDate,
+      dayLabel: buildDayLabel(planIdx, selectedDate),
+      exercises: lines,
+      completed: countLogLines(log),
+      total: countLogLines(log),
+      notes: '',
+      muscles: [],
+    };
+    const newMap = new Map(workMap);
+    newMap.set(entry.id, entry);
+    setWorkMap(newMap);
+    saveWork(newMap);
+    setLog('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    setSaving(false);
+  }
+
+  async function handleAnalyze() {
+    if (!pendingWorkouts.length || analyzing) return;
+    setAnalyzing(true);
     try {
-      const lines = log.split('\n').map(l => l.trim()).filter(Boolean);
-      const entry = {
-        id: Date.now(),
-        date: selectedDate,
-        dayLabel: buildDayLabel(planIdx, selectedDate),
-        exercises: lines,
-        completed: countLogLines(log),
-        total: countLogLines(log),
-        notes: '',
-      };
+      const results = await extractMusclesBatch(pendingWorkouts);
       const newMap = new Map(workMap);
-      newMap.set(entry.id, entry);
+      for (const r of results) {
+        const existing = newMap.get(r.id);
+        if (existing) newMap.set(r.id, { ...existing, muscles: r.muscles || [] });
+      }
       setWorkMap(newMap);
       saveWork(newMap);
-      setLog('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error('Batch muscle extraction error:', err);
     } finally {
-      setSaving(false);
+      setAnalyzing(false);
     }
   }
 
@@ -239,6 +264,31 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
         >
           {saving ? 'Saving…' : saved ? '✓ Saved!' : 'Save Workout'}
         </button>
+
+        {/* Analyze banner */}
+        {pendingWorkouts.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, background: '#1a1a2a', borderRadius: 10, padding: '10px 14px' }}>
+            <span style={{ fontSize: 12, color: '#7a7a8a', flex: 1 }}>
+              {analyzing ? 'Extracting muscles…' : `${pendingWorkouts.length} workout${pendingWorkouts.length > 1 ? 's' : ''} need muscle analysis`}
+            </span>
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              style={{
+                background: analyzing ? '#1e1e2a' : '#b388ff',
+                border: 'none',
+                borderRadius: 8,
+                color: analyzing ? '#4a4a5a' : '#0a0a0f',
+                fontSize: 12,
+                fontWeight: 600,
+                padding: '6px 14px',
+                cursor: analyzing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {analyzing ? 'Analyzing…' : 'Analyze'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Logged sessions for this date */}
@@ -256,14 +306,14 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
                 <span style={{ fontSize: 12, color: '#b388ff', fontWeight: 500 }}>{w.dayLabel}</span>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: '#4a4a5a' }}>{w.completed} exercises</span>
-                  <button
-                    onClick={() => handleDelete(w.id)}
-                    style={{
-                      background: 'none', border: 'none', color: '#3a3a4a',
-                      cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0,
-                    }}
-                    title="Delete"
-                  >×</button>
+                  {confirmDeleteId === w.id ? (
+                    <>
+                      <button onClick={() => handleDelete(w.id)} style={{ background: '#ff525215', border: '1px solid #ff525240', borderRadius: 6, color: '#ff5252', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Delete</button>
+                      <button onClick={() => setConfirmDeleteId(null)} style={{ background: 'none', border: '1px solid #2a2a3a', borderRadius: 6, color: '#7a7a8a', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Cancel</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteId(w.id)} style={{ background: 'none', border: 'none', color: '#3a3a4a', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }} title="Delete">×</button>
+                  )}
                 </div>
               </div>
               {w.exercises?.map((line, i) => (
