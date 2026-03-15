@@ -3,7 +3,7 @@ import ChatBubble from './ChatBubble.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import { callClaudeStream } from '../engine/claude.js';
 import { buildCoachContext } from '../engine/context.js';
-import { saveDiet, saveWork, savePlanMods } from '../engine/storage.js';
+import { saveDiet, saveWork, savePlanMods, loadCoachHistory, saveCoachHistory, clearCoachHistory } from '../engine/storage.js';
 import { analyzeMealsBatch, analyzeMealImage, extractMusclesBatch } from '../engine/analyzer.js';
 
 const QUICK_PROMPTS = [
@@ -48,7 +48,7 @@ function parseAssistantResponse(raw) {
 }
 
 export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '', healthMap = {} }) {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => loadCoachHistory());
   const [input, setInput] = useState('');
   const [imageData, setImageData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -56,9 +56,21 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
   const [error, setError] = useState('');
   const bottomRef = useRef(null);
 
+  // Persist history whenever messages change (skip streaming placeholders)
+  useEffect(() => {
+    if (!messages.some(m => m.streaming)) {
+      saveCoachHistory(messages);
+    }
+  }, [messages]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  function handleClearChat() {
+    setMessages([]);
+    clearCoachHistory();
+  }
 
   async function sendMessage(userText, userImage) {
     const text = (userText || '').trim();
@@ -135,11 +147,13 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
     setInput('');
     setImageData(null);
 
-    // Build history for API (exclude display-only fields)
-    const history = [...messages, newUserMsg].map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build history for API — cap at last 20 messages to keep token cost bounded.
+    // The system prompt already carries full fitness context, so deep history
+    // adds little value vs. the token cost of resending it every turn.
+    const MAX_HISTORY = 20;
+    const history = [...messages, newUserMsg]
+      .slice(-MAX_HISTORY)
+      .map(m => ({ role: m.role, content: m.content }));
 
     try {
       const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing, healthMap);
@@ -158,7 +172,7 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
       fullText = await callClaudeStream({
         system: systemPrompt,
         messages: history,
-        max_tokens: 1024,
+        max_tokens: 2048,
         onChunk: (chunk) => {
           setMessages(prev => prev.map(m =>
             m.id === placeholderId
@@ -230,6 +244,24 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
+      {/* Header bar — only shown when there's chat history */}
+      {messages.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 16px', borderBottom: '1px solid #1e1e2a',
+          background: '#0a0a0f',
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>🤖 Shred Coach</span>
+          <button
+            onClick={handleClearChat}
+            style={{
+              background: 'transparent', border: '1px solid #2a2a3a',
+              borderRadius: 8, padding: '4px 12px',
+              color: '#7a7a8a', fontSize: 11, cursor: 'pointer',
+            }}
+          >New chat</button>
+        </div>
+      )}
       {/* Chat area */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
         {messages.length === 0 && (
@@ -239,6 +271,7 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
             <div style={{ fontSize: 13, color: '#7a7a8a', marginBottom: 24 }}>
               Your AI coaching assistant. Ask anything.
             </div>
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
               {QUICK_PROMPTS.map(p => (
                 <button

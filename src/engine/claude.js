@@ -1,30 +1,41 @@
-// Gemini API — drop-in replacement, same exported function signatures.
-const MODEL = 'gemini-2.5-flash';
+// Gemini API — multi-model × multi-key rotation for maximum free-tier RPD.
+//
+// Strategy: exhaust all 3 text models on key 1 before moving to key 2.
+// Each model has its own independent RPD quota per API key.
+//
+//   gemini-2.5-flash:      20 RPD  ← best quality, tried first
+//   gemini-2.5-flash-lite: 20 RPD
+//   gemini-3-flash:        20 RPD
+//   ─────────────────────────────
+//   Per key:               60 RPD
+//   4 keys total:         240 RPD/day
+//
+// ⚠ gemini-2.5-flash-tts is EXCLUDED — it outputs audio, not text.
+// ⚠ If a model gives 404, check its exact API ID in Google AI Studio.
 
-// Collect all configured API keys (VITE_GEMINI_API_KEY_1, _2, _3, ... or legacy VITE_GEMINI_API_KEY)
+const TEXT_MODELS = [
+  'gemini-2.5-flash',       // 20 RPD — best quality
+  'gemini-2.5-flash-lite',  // 20 RPD — fast, good quality
+  'gemini-3-flash',         // 20 RPD — fallback
+];
+
 function getApiKeys() {
   const keys = [];
   for (let i = 1; i <= 10; i++) {
     const k = import.meta.env[`VITE_GEMINI_API_KEY_${i}`];
     if (k) keys.push(k);
   }
-  // Fallback to legacy single-key env var
   const legacy = import.meta.env.VITE_GEMINI_API_KEY;
   if (legacy && !keys.includes(legacy)) keys.push(legacy);
   return keys;
 }
 
-function apiUrl(key, streaming = false) {
+function apiUrl(key, model, streaming = false) {
   const method = streaming ? 'streamGenerateContent' : 'generateContent';
   const alt = streaming ? '&alt=sse' : '';
-  return `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:${method}?key=${key}${alt}`;
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:${method}?key=${key}${alt}`;
 }
 
-/**
- * Converts Claude-format messages to Gemini format.
- * Claude: { role: 'user'|'assistant', content: string | array }
- * Gemini: { role: 'user'|'model', parts: [...] }
- */
 function toGeminiMessages(messages) {
   return messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -35,7 +46,6 @@ function toGeminiMessages(messages) {
 function toGeminiParts(content) {
   if (typeof content === 'string') return [{ text: content }];
   if (!Array.isArray(content)) return [{ text: String(content) }];
-
   return content.map(block => {
     if (block.type === 'text') return { text: block.text };
     if (block.type === 'image') {
@@ -62,30 +72,50 @@ function buildBody(messages, system, max_tokens) {
 }
 
 /**
- * Single-shot Gemini API call. Tries each configured key in order,
- * skipping any that return 429 (quota exhausted).
- * Returns the text response.
+ * Builds the ordered attempt list: exhaust all models on key 1, then key 2, etc.
+ * Returns [{ key, model }, ...] — up to keys.length × TEXT_MODELS.length combos.
+ */
+function buildAttempts(keys) {
+  const attempts = [];
+  for (const key of keys) {
+    for (const model of TEXT_MODELS) {
+      attempts.push({ key, model });
+    }
+  }
+  return attempts;
+}
+
+/**
+ * Single-shot Gemini call.
+ * Rotates through all model × key combos on 429, throws on first hard error.
  */
 export async function callClaude({ messages, system, max_tokens = 1024 }) {
   const keys = getApiKeys();
   if (keys.length === 0) throw new Error('No Gemini API key configured');
 
+  const attempts = buildAttempts(keys);
   let lastErr;
-  for (const key of keys) {
-    const res = await fetch(apiUrl(key, false), {
+
+  for (const { key, model } of attempts) {
+    const res = await fetch(apiUrl(key, model, false), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody(messages, system, max_tokens)),
     });
 
     if (res.status === 429) {
-      lastErr = new Error(`Gemini API error 429: quota exhausted`);
-      continue; // try next key
+      lastErr = new Error(`Quota exhausted: ${model}`);
+      continue;
     }
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Gemini API error ${res.status}: ${err}`);
+      // 404 = wrong model ID — skip silently and try next
+      if (res.status === 404) {
+        lastErr = new Error(`Model not found: ${model}`);
+        continue;
+      }
+      throw new Error(`Gemini API error ${res.status} (${model}): ${err}`);
     }
 
     const data = await res.json();
@@ -94,34 +124,40 @@ export async function callClaude({ messages, system, max_tokens = 1024 }) {
     return text;
   }
 
-  throw lastErr || new Error('All Gemini API keys exhausted');
+  throw lastErr || new Error('All Gemini models and keys exhausted for today');
 }
 
 /**
- * Streaming Gemini API call. Tries each configured key in order,
- * skipping any that return 429. Calls onChunk(text) for each delta.
- * Returns full text when done.
+ * Streaming Gemini call.
+ * Rotates through all model × key combos on 429.
+ * Calls onChunk(text) for each delta. Returns full accumulated text.
  */
 export async function callClaudeStream({ messages, system, max_tokens = 1024, onChunk }) {
   const keys = getApiKeys();
   if (keys.length === 0) throw new Error('No Gemini API key configured');
 
+  const attempts = buildAttempts(keys);
   let lastErr;
-  for (const key of keys) {
-    const res = await fetch(apiUrl(key, true), {
+
+  for (const { key, model } of attempts) {
+    const res = await fetch(apiUrl(key, model, true), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody(messages, system, max_tokens)),
     });
 
     if (res.status === 429) {
-      lastErr = new Error(`Gemini API error 429: quota exhausted`);
-      continue; // try next key
+      lastErr = new Error(`Quota exhausted: ${model}`);
+      continue;
     }
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Gemini API error ${res.status}: ${err}`);
+      if (res.status === 404) {
+        lastErr = new Error(`Model not found: ${model}`);
+        continue;
+      }
+      throw new Error(`Gemini API error ${res.status} (${model}): ${err}`);
     }
 
     const reader = res.body.getReader();
@@ -157,5 +193,5 @@ export async function callClaudeStream({ messages, system, max_tokens = 1024, on
     return full;
   }
 
-  throw lastErr || new Error('All Gemini API keys exhausted');
+  throw lastErr || new Error('All Gemini models and keys exhausted for today');
 }

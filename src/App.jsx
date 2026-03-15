@@ -78,7 +78,7 @@ export default function App() {
 
     // Generate daily briefing (1 Gemini call/day)
     const targets = computeTargets(diet);
-    getDailyBriefing(diet, work, targets).then(setDailyBriefing).catch(() => {});
+    getDailyBriefing(diet, work, targets, health).then(setDailyBriefing).catch(() => {});
   }, []);
 
   // ── Debounced push on data changes ──────────────────────────

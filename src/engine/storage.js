@@ -134,3 +134,44 @@ export function saveHealth(obj) {
     localStorage.setItem(HEALTH_KEY, JSON.stringify(obj));
   } catch {}
 }
+
+const COACH_HISTORY_KEY = 'sc_coach_history';
+
+/** Strip large image data before saving to localStorage to avoid quota issues. */
+function stripImages(messages) {
+  return messages.map(m => {
+    const out = { ...m, imageData: undefined };
+    if (Array.isArray(m.content)) {
+      out.content = m.content
+        .filter(b => b.type !== 'image')
+        .concat(
+          m.content.filter(b => b.type === 'image').map(() => ({
+            type: 'text',
+            text: '[image shared earlier]',
+          }))
+        );
+    }
+    return out;
+  });
+}
+
+export function loadCoachHistory() {
+  try {
+    const raw = localStorage.getItem(COACH_HISTORY_KEY);
+    return JSON.parse(raw) || [];
+  } catch { return []; }
+}
+
+export function saveCoachHistory(messages) {
+  try {
+    // Keep last 60 messages max; strip images to save space
+    const toSave = stripImages(messages.slice(-60));
+    localStorage.setItem(COACH_HISTORY_KEY, JSON.stringify(toSave));
+  } catch (err) {
+    console.error('saveCoachHistory error:', err);
+  }
+}
+
+export function clearCoachHistory() {
+  try { localStorage.removeItem(COACH_HISTORY_KEY); } catch {}
+}

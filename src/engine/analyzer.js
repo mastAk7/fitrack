@@ -23,14 +23,18 @@ export async function analyzeMealText(text, dailyCalTarget = 2000) {
 export async function analyzeMealsBatch(entries, dailyCalTarget = 2000) {
   const threshold = Math.round(dailyCalTarget * 0.45);
   const list = entries.map(e => JSON.stringify({ id: e.id, text: e.summary || '' })).join(',\n');
-  const prompt = `You are a nutrition analyzer. Analyze each meal and return ONLY a JSON array (no markdown, no extra text).
+  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day. He eats Indian home-cooked food primarily.
+
+Analyze each meal below and return ONLY a JSON array (no markdown, no extra text).
+
+Indian food reference: 1 roti=100 kcal/3g P, 1 bowl dal=250 kcal/15g P, paneer 100g=260 kcal/18g P, 1 bowl curd=100 kcal/6g P, soya chunks 100g dry=345 kcal/52g P, 1 egg=70 kcal/6g P, milk 250ml=150 kcal/8g P, rice 1 bowl=200 kcal/4g P.
 
 Meals:
 [${list}]
 
-For each return: {"id":<id>,"summary":"brief desc","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"one coaching note","items":["item1"]}
-Rating: "good" if protein>=15 AND calories<=${threshold}, "low_protein" if protein<10, "too_many_calories" if calories>${threshold}, else "ok".
-Pay close attention to quantities. Cover all food types worldwide.`;
+For each return: {"id":<id>,"summary":"brief description","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"specific coaching note with numbers (e.g. 'only 6g protein — add curd to hit 12g')","items":["item with quantity"]}
+Rating: "good" if protein>=15 AND calories<=${threshold} | "low_protein" if protein<10 | "too_many_calories" if calories>${threshold} | else "ok".
+Be accurate with quantities — "2 roti" is double "1 roti". Cover all cuisines.`;
 
   const responseText = await callClaude({ max_tokens: 8192, messages: [{ role: 'user', content: prompt }] });
   const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
@@ -93,15 +97,23 @@ export async function analyzeMealImage(base64DataUri, textContext = '', dailyCal
 
 async function analyzeMealWithGemini(text, imageDataUri, dailyCalTarget = 2000) {
   const threshold = Math.round(dailyCalTarget * 0.45);
-  const prompt = `You are a nutrition analyzer. The user ate: "${text}".
-${imageDataUri ? 'Analyze the food shown in the image.' : ''}
-Estimate macros accurately — pay close attention to quantities (e.g. "2 chapati" vs "1 chapati" should give different calorie values).
-Be accurate for all food types: Indian, Western, packaged, anything.
+  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day, protein target ~${Math.round(dailyCalTarget * 0.065)}g/day. He eats Indian home-cooked food.
+
+The user ${imageDataUri ? 'shared a photo of their meal' : `ate: "${text}"`}.
+${imageDataUri && text ? `Additional context: "${text}"` : ''}
+
+Estimate macros accurately:
+- Pay close attention to quantities (e.g. "2 roti" ≠ "1 roti", "100g paneer" ≠ "50g paneer")
+- Indian food defaults: 1 roti = ~100 kcal / 3g P, 1 bowl dal = ~250 kcal / 15g P, paneer 100g = ~260 kcal / 18g P, 1 bowl curd = ~100 kcal / 6g P, soya chunks 100g dry = ~345 kcal / 52g P
+- For packaged/restaurant food: use standard values
+- Be accurate for all cuisines: Indian, Western, fast food, etc.
+
+The feedback field must be one specific, actionable coaching note — reference actual numbers (e.g. "Only 8g protein here — add a bowl of curd or 50g paneer to boost this meal to 14g+"). Never generic advice.
 
 Respond with ONLY valid JSON (no markdown, no extra text):
-{"summary":"brief description","protein_g":25,"calories":400,"rating":"good","feedback":"one-line coaching note","items":["food item 1","food item 2"]}
+{"summary":"brief description of what was eaten","protein_g":25,"calories":400,"rating":"good","feedback":"specific actionable coaching note with numbers","items":["food item 1 with quantity","food item 2 with quantity"]}
 
-Rating rules: "good" if protein>=15g AND calories<=${threshold}, "low_protein" if protein<10g, "too_many_calories" if calories>${threshold}, else "ok".`;
+Rating: "good" if protein>=15g AND calories<=${threshold} | "low_protein" if protein<10g | "too_many_calories" if calories>${threshold} | else "ok"`;
 
   try {
     const content = imageDataUri
