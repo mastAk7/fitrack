@@ -76,7 +76,7 @@ export async function pullGist() {
 /**
  * Pushes current state to gist. Returns true on success.
  */
-export async function pushGist(dietMap, workMap, planMods) {
+export async function pushGist(dietMap, workMap, planMods, tombstones = new Set()) {
   if (!getToken()) return false;
   try {
     const id = await ensureGistId();
@@ -85,6 +85,7 @@ export async function pushGist(dietMap, workMap, planMods) {
       diet: [...dietMap.values()],
       work: [...workMap.values()],
       planMods,
+      deletedIds: [...tombstones],
       lastSync: new Date().toISOString(),
     };
     const res = await ghFetch(`https://api.github.com/gists/${id}`, {
@@ -104,21 +105,31 @@ export async function pushGist(dietMap, workMap, planMods) {
 
 /**
  * Merges gist data into existing Maps. Union by id — local wins on conflict.
- * Returns { dietMap, workMap, planMods }
+ * Deleted IDs (tombstones) are excluded and the merged tombstone set is returned.
+ * Returns { dietMap, workMap, planMods, tombstones }
  */
-export function mergeGistData(localDietMap, localWorkMap, localPlanMods, gistData) {
+export function mergeGistData(localDietMap, localWorkMap, localPlanMods, gistData, localTombstones = new Set()) {
+  // Union tombstones from both sides
+  const tombstones = new Set([...localTombstones, ...(gistData.deletedIds || [])]);
+
   const dietMap = new Map(localDietMap);
   const workMap = new Map(localWorkMap);
 
+  // Remove any local entries that are tombstoned
+  for (const id of tombstones) {
+    dietMap.delete(id);
+    workMap.delete(id);
+  }
+
+  // Add gist entries not present locally, skipping tombstoned ones
   for (const entry of gistData.diet || []) {
-    if (!dietMap.has(entry.id)) dietMap.set(entry.id, entry);
+    if (!tombstones.has(entry.id) && !dietMap.has(entry.id)) dietMap.set(entry.id, entry);
   }
   for (const entry of gistData.work || []) {
-    if (!workMap.has(entry.id)) workMap.set(entry.id, entry);
+    if (!tombstones.has(entry.id) && !workMap.has(entry.id)) workMap.set(entry.id, entry);
   }
 
-  // Merge planMods: local key wins
   const planMods = { ...(gistData.planMods || {}), ...localPlanMods };
 
-  return { dietMap, workMap, planMods };
+  return { dietMap, workMap, planMods, tombstones };
 }

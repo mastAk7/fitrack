@@ -5,7 +5,7 @@ import DietTab from './components/DietTab.jsx';
 import WorkoutTab from './components/WorkoutTab.jsx';
 import AnalyticsTab from './components/AnalyticsTab.jsx';
 import CoachTab from './components/CoachTab.jsx';
-import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods } from './engine/storage.js';
+import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
 import SyncSettings from './components/SyncSettings.jsx';
@@ -50,11 +50,12 @@ export default function App() {
       pullGist()
         .then(gistData => {
           if (gistData) {
-            const merged = mergeGistData(diet, work, mods, gistData);
-            // Persist merged data locally
+            const localTombstones = loadTombstones();
+            const merged = mergeGistData(diet, work, mods, gistData, localTombstones);
             saveDiet(merged.dietMap);
             saveWork(merged.workMap);
             savePlanMods(merged.planMods);
+            saveTombstones(merged.tombstones);
             setDietMap(merged.dietMap);
             setWorkMap(merged.workMap);
             setPlanMods(merged.planMods);
@@ -83,7 +84,7 @@ export default function App() {
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(async () => {
       setSyncStatus('syncing');
-      const ok = await pushGist(dietRef.current, workRef.current, modsRef.current);
+      const ok = await pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones());
       setSyncStatus(ok ? 'synced' : 'error');
       if (ok) setLastSync(new Date().toISOString());
       setTimeout(() => setSyncStatus('idle'), ok ? 2500 : 4000);
@@ -97,7 +98,7 @@ export default function App() {
   useEffect(() => {
     function onUnload() {
       if (!isGistConfigured()) return;
-      pushGist(dietRef.current, workRef.current, modsRef.current).catch(() => {});
+      pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones()).catch(() => {});
     }
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
@@ -129,11 +130,11 @@ export default function App() {
             pullGist()
               .then(gistData => {
                 if (gistData) {
-                  const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData);
-                  saveDiet(merged.dietMap); saveWork(merged.workMap); savePlanMods(merged.planMods);
+                  const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, loadTombstones());
+                  saveDiet(merged.dietMap); saveWork(merged.workMap); savePlanMods(merged.planMods); saveTombstones(merged.tombstones);
                   setDietMap(merged.dietMap); setWorkMap(merged.workMap); setPlanMods(merged.planMods);
                 }
-                return pushGist(dietRef.current, workRef.current, modsRef.current);
+                return pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones());
               })
               .then(ok => {
                 setSyncStatus(ok ? 'synced' : 'error');

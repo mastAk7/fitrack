@@ -1,6 +1,7 @@
 const DIET_KEY = 'sc_diet3';
 const WORK_KEY = 'sc_work3';
 const PLAN_MODS_KEY = 'sc_plan_mods';
+const TOMBSTONES_KEY = 'sc_tombstones';
 
 function readKey(key) {
   try {
@@ -98,4 +99,23 @@ export function savePlanMods(mods) {
   } catch (err) {
     console.error('savePlanMods error:', err);
   }
+}
+
+export function loadTombstones() {
+  try {
+    const raw = localStorage.getItem(TOMBSTONES_KEY);
+    return new Set(JSON.parse(raw) || []);
+  } catch { return new Set(); }
+}
+
+export function saveTombstones(set) {
+  try {
+    localStorage.setItem(TOMBSTONES_KEY, JSON.stringify([...set]));
+  } catch {}
+}
+
+export function addTombstone(id) {
+  const t = loadTombstones();
+  t.add(id);
+  saveTombstones(t);
 }

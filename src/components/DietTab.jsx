@@ -3,7 +3,7 @@ import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
-import { saveDiet } from '../engine/storage.js';
+import { saveDiet, addTombstone } from '../engine/storage.js';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -25,6 +25,18 @@ function nowTimeStr() {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
+function normalize(str) {
+  return str.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+}
+function isSimilar(a, b) {
+  const wa = normalize(a), wb = normalize(b);
+  if (!wa.length || !wb.length) return false;
+  const shorter = wa.length <= wb.length ? wa : wb;
+  const longer = wa.length <= wb.length ? wb : wa;
+  const overlap = shorter.filter(w => longer.includes(w)).length;
+  return overlap / shorter.length >= 0.6;
+}
+
 export default function DietTab({ dietMap, setDietMap, targets }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [text, setText] = useState('');
@@ -32,6 +44,7 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
+  const [dupWarning, setDupWarning] = useState(null); // similar existing meal
 
   // All unique dates with meals, sorted descending
   const loggedDates = useMemo(() => {
@@ -53,9 +66,22 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
   const pendingMeals = useMemo(() =>
     [...dietMap.values()].filter(e => e.analyzed === false), [dietMap]);
 
-  function handleLog() {
+  function handleLog(force = false) {
     if (!text.trim() && !imageData) return;
     setError('');
+
+    // Duplicate check (text meals only)
+    if (!force && text.trim()) {
+      const similar = [...dietMap.values()].find(
+        e => e.date === selectedDate && isSimilar(text.trim(), e.summary)
+      );
+      if (similar) {
+        setDupWarning(similar);
+        return;
+      }
+    }
+
+    setDupWarning(null);
     const entry = {
       id: Date.now(),
       date: selectedDate,
@@ -75,6 +101,27 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
     saveDiet(newMap);
     setText('');
     setImageData(null);
+  }
+
+  function handleDedup() {
+    const seen = new Map(); // key: date → array of summaries already kept
+    const toDelete = [];
+    const sorted = [...dietMap.values()].sort((a, b) => a.id - b.id); // oldest first
+    for (const entry of sorted) {
+      const daySeen = seen.get(entry.date) || [];
+      const isDup = daySeen.some(s => isSimilar(entry.summary, s));
+      if (isDup) {
+        toDelete.push(entry.id);
+      } else {
+        daySeen.push(entry.summary);
+        seen.set(entry.date, daySeen);
+      }
+    }
+    if (toDelete.length === 0) return;
+    const newMap = new Map(dietMap);
+    for (const id of toDelete) newMap.delete(id);
+    setDietMap(newMap);
+    saveDiet(newMap);
   }
 
   async function handleAnalyze() {
@@ -107,6 +154,7 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
   }
 
   function handleDelete(id) {
+    addTombstone(id);
     const newMap = new Map(dietMap);
     newMap.delete(id);
     setDietMap(newMap);
@@ -202,6 +250,26 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
             {imageData ? 'Log Photo' : 'Log Meal'}
           </button>
         </div>
+        {dupWarning && (
+          <div style={{
+            marginTop: 8, background: '#1a140a', border: '1px solid #ffab4060',
+            borderRadius: 8, padding: '8px 12px',
+          }}>
+            <div style={{ fontSize: 12, color: '#ffab40', marginBottom: 6 }}>
+              Similar meal already logged: <em>"{dupWarning.summary}"</em>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => handleLog(true)}
+                style={{ background: '#ffab40', color: '#0a0a0f', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >Log anyway</button>
+              <button
+                onClick={() => setDupWarning(null)}
+                style={{ background: 'transparent', color: '#7a7a8a', border: '1px solid #2a2a3a', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
+              >Cancel</button>
+            </div>
+          </div>
+        )}
         {error && (
           <div style={{ fontSize: 12, color: '#ff5252', marginTop: 8 }}>{error}</div>
         )}
@@ -276,7 +344,7 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
                   {formatDate(date)}
                 </span>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: '#00e676' }}>{s.pro || 0}g</span>
+                  <span style={{ fontSize: 12, color: '#00e676' }}>{Math.round((s.pro || 0) * 10) / 10}g</span>
                   <span style={{ fontSize: 12, color: '#ffab40' }}>{s.cal || 0} kcal</span>
                   <span style={{ fontSize: 11, color: '#4a4a5a' }}>{s.meals || 0} meals</span>
                 </div>

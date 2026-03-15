@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
-import { savePlanMods, saveWork } from '../engine/storage.js';
+import { savePlanMods, saveWork, addTombstone } from '../engine/storage.js';
 import { extractMusclesBatch } from '../engine/analyzer.js';
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
@@ -71,6 +71,7 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
   }
 
   function handleDelete(id) {
+    addTombstone(id);
     const newMap = new Map(workMap);
     newMap.delete(id);
     setWorkMap(newMap);
