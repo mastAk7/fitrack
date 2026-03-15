@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm create vite@latest . -- --template react --yes 2>&1)",
+      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm install 2>&1)",
+      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && npm run build 2>&1)",
+      "Bash(cd \"/c/Users/aryan/OneDrive/Desktop/fitrack\" && timeout 8 npm run dev 2>&1 || true)"
+    ]
+  }
+}
