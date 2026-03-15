@@ -101,7 +101,7 @@ export function getProteinStreak(dietMap) {
   for (let i = 0; i < 90; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const pro = dayMap.get(dateStr) || 0;
     if (pro >= 130) streak++;
     else if (i > 0) break; // gap breaks streak (except today not yet logged)

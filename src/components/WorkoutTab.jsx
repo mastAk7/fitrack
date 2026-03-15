@@ -3,10 +3,13 @@ import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
 import { savePlanMods, saveWork, addTombstone } from '../engine/storage.js';
 import { extractMusclesBatch } from '../engine/analyzer.js';
 
-function todayStr() { return new Date().toISOString().split('T')[0]; }
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function todayStr() { return localDateStr(); }
 function yesterdayStr() {
   const d = new Date(); d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  return localDateStr(d);
 }
 function formatDate(str) {
   const d = new Date(str + 'T12:00:00');

@@ -43,7 +43,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
   const workSessions = useMemo(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 14);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
     return [...workMap.values()].filter(w => w.date >= cutoffStr).length;
   }, [workMap]);
 
@@ -67,7 +67,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
     for (let i = 27; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const ds = d.toISOString().split('T')[0];
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       days.push({ date: ds, has: workDates.has(ds) });
     }
     return days;
@@ -93,7 +93,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
     const days = [];
     for (let i = 13; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const ds = d.toISOString().split('T')[0];
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const agg = dailyAgg.find(a => a.date === ds) || { pro: 0, cal: 0, meals: 0 };
       const h = healthMap[ds] || {};
       const sleep_h = h.sleep_h || 0;

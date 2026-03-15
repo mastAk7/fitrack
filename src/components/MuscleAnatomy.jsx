@@ -380,14 +380,15 @@ export default function MuscleAnatomy({ workMap }) {
   const filteredWorkouts = useMemo(() => {
     const now = new Date();
     let cutoff;
+    const lds = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (filter === 'day') {
-      cutoff = now.toISOString().split('T')[0];
+      cutoff = lds(now);
     } else if (filter === 'week') {
       const d = new Date(now); d.setDate(d.getDate() - 7);
-      cutoff = d.toISOString().split('T')[0];
+      cutoff = lds(d);
     } else if (filter === 'month') {
       const d = new Date(now); d.setDate(d.getDate() - 30);
-      cutoff = d.toISOString().split('T')[0];
+      cutoff = lds(d);
     } else {
       cutoff = '2000-01-01';
     }

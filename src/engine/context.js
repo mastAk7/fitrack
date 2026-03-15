@@ -13,12 +13,15 @@ Cardio: Volleyball 7:30–9 PM most evenings (intense, 1.5 hrs), 2 km park walks
 Diet: Indian home-cooked — paneer, dal, soya chunks, sprouts, curd, roti, milk, chaap
 Known issues: 3 AM eating, inconsistent sleep, skips back/leg days, early protein avg ~47g/day, carb-heavy meals`;
 
-function todayStr() { return new Date().toISOString().split('T')[0]; }
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function todayStr() { return localDateStr(); }
 
 function nDaysAgo(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().split('T')[0];
+  return localDateStr(d);
 }
 
 /**
@@ -100,7 +103,7 @@ export function buildCoachContext(dietMap, workMap, targets, dailyBriefing = '',
   const healthLines = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const ds = d.toISOString().split('T')[0];
+    const ds = localDateStr(d);
     const h = healthMap[ds];
     if (h && (h.sleep_h > 0 || h.water > 0)) {
       const sleepNote = h.sleep_h >= 7 ? '✓' : h.sleep_h >= 6 ? '~' : h.sleep_h > 0 ? '✗' : '—';
