@@ -24,7 +24,7 @@ function nDaysAgo(n) {
 /**
  * Builds the full rich system prompt passed to every Gemini coach call.
  */
-export function buildCoachContext(dietMap, workMap, targets, dailyBriefing = '') {
+export function buildCoachContext(dietMap, workMap, targets, dailyBriefing = '', healthMap = {}) {
   const today = todayStr();
 
   // ── TODAY ──────────────────────────────────────────────────
@@ -96,6 +96,52 @@ export function buildCoachContext(dietMap, workMap, targets, dailyBriefing = '')
   const hitRate = totalDays > 0 ? Math.round((proHitDays / totalDays) * 100) : 0;
   const totalWorkoutSessions = [...workMap.values()].length;
 
+  // ── SLEEP & WATER — last 7 days ─────────────────────────────
+  const healthLines = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split('T')[0];
+    const h = healthMap[ds];
+    if (h && (h.sleep_h > 0 || h.water > 0)) {
+      const sleepNote = h.sleep_h >= 7 ? '✓' : h.sleep_h >= 6 ? '~' : h.sleep_h > 0 ? '✗' : '—';
+      const waterNote = h.water >= 8 ? '✓' : h.water >= 5 ? '~' : h.water > 0 ? '✗' : '—';
+      healthLines.push(`  ${ds}: Sleep ${h.sleep_h || 0}h${sleepNote}  Water ${h.water || 0}/8${waterNote}`);
+    }
+  }
+  const healthText = healthLines.length > 0 ? healthLines.join('\n') : '  No sleep/water data logged.';
+
+  // ── 7-DAY ANALYTICAL SUMMARY ─────────────────────────────────
+  const last7days = agg14.slice(-7);
+  const avgPro7 = last7days.length > 0 ? Math.round(last7days.reduce((s, d) => s + d.pro, 0) / last7days.length) : 0;
+  const avgCal7 = last7days.length > 0 ? Math.round(last7days.reduce((s, d) => s + d.cal, 0) / last7days.length) : 0;
+  const proHit7 = last7days.filter(d => d.pro >= targets.pro).length;
+  const workouts7 = last7days.filter(d => workDates.has(d.date)).length;
+  const avgSleep7 = (() => {
+    const vals = last7days.map(d => healthMap[d.date]?.sleep_h || 0).filter(v => v > 0);
+    return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+  })();
+  const avgWater7 = (() => {
+    const vals = last7days.map(d => healthMap[d.date]?.water || 0).filter(v => v > 0);
+    return vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+  })();
+  const trend = last7days.length >= 4
+    ? (() => {
+        const firstHalf = last7days.slice(0, Math.floor(last7days.length / 2));
+        const secondHalf = last7days.slice(Math.floor(last7days.length / 2));
+        const avg1 = firstHalf.reduce((s, d) => s + d.pro, 0) / firstHalf.length;
+        const avg2 = secondHalf.reduce((s, d) => s + d.pro, 0) / secondHalf.length;
+        return avg2 > avg1 + 5 ? 'improving' : avg2 < avg1 - 5 ? 'declining' : 'steady';
+      })()
+    : 'insufficient data';
+
+  const summary7 = [
+    `  Avg protein: ${avgPro7}g/day (target ${targets.pro}g) — hit ${proHit7}/${last7days.length} days — trend: ${trend}`,
+    `  Avg calories: ${avgCal7} kcal/day (target ${targets.cal})`,
+    `  Workouts: ${workouts7}/${last7days.length} days`,
+    avgSleep7 !== null ? `  Avg sleep: ${avgSleep7}h/night` : null,
+    avgWater7 !== null ? `  Avg water: ${avgWater7} glasses/day` : null,
+  ].filter(Boolean).join('\n');
+
   // ── TRAINING PLAN ───────────────────────────────────────────
   const planText = TRAINING_PLAN.map((d, i) =>
     `  [${i}] ${d.day} — ${d.label}\n      ${d.exercises.join(' | ')}`
@@ -118,8 +164,14 @@ Still needed:   ${remainPro}g protein / ${remainCal} kcal
 WORKOUT:
 ${todayWorkText}
 
-═══ 14-DAY SUMMARY (P=protein vs target, C=calories vs target) ═
+═══ 7-DAY ANALYTICAL SUMMARY ═══════════════════════════════════
+${summary7}
+
+═══ 14-DAY LOG (P=protein vs target, C=calories vs target) ════
 ${summaryTable}
+
+═══ SLEEP & WATER — last 7 days ═══════════════════════════════
+${healthText}
 
 ═══ RECENT MEALS DETAIL — last 7 days ══════════════════════════
 ${recentMealsText}

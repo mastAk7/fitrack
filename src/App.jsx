@@ -5,7 +5,7 @@ import DietTab from './components/DietTab.jsx';
 import WorkoutTab from './components/WorkoutTab.jsx';
 import AnalyticsTab from './components/AnalyticsTab.jsx';
 import CoachTab from './components/CoachTab.jsx';
-import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones } from './engine/storage.js';
+import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
 import SyncSettings from './components/SyncSettings.jsx';
@@ -22,6 +22,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState(getLastSyncTime());
   const [dailyBriefing, setDailyBriefing] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [healthMap, setHealthMap] = useState({});
 
   const pushTimer = useRef(null);
   // Store latest maps in refs so beforeunload can access them without stale closure
@@ -39,10 +40,12 @@ export default function App() {
     let diet = loadDiet();
     let work = loadWork();
     let mods = loadPlanMods();
+    const health = loadHealth();
 
     setDietMap(diet);
     setWorkMap(work);
     setPlanMods(mods);
+    setHealthMap(health);
 
     // Pull from gist and merge
     if (isGistConfigured()) {
@@ -151,7 +154,7 @@ export default function App() {
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {activeTab === 'diet' && (
-          <DietTab dietMap={dietMap} setDietMap={setDietMap} targets={targets} />
+          <DietTab dietMap={dietMap} setDietMap={setDietMap} targets={targets} healthMap={healthMap} setHealthMap={setHealthMap} />
         )}
         {activeTab === 'workout' && (
           <WorkoutTab
@@ -160,7 +163,7 @@ export default function App() {
           />
         )}
         {activeTab === 'analytics' && (
-          <AnalyticsTab dietMap={dietMap} workMap={workMap} targets={targets} />
+          <AnalyticsTab dietMap={dietMap} workMap={workMap} targets={targets} healthMap={healthMap} />
         )}
         {activeTab === 'coach' && (
           <CoachTab
@@ -169,6 +172,7 @@ export default function App() {
             planMods={planMods} setPlanMods={setPlanMods}
             targets={targets}
             dailyBriefing={dailyBriefing}
+            healthMap={healthMap}
           />
         )}
       </div>

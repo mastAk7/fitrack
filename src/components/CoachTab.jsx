@@ -44,7 +44,7 @@ function parseAssistantResponse(raw) {
   return { text, workoutMod, mealLog };
 }
 
-export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '' }) {
+export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '', healthMap = {} }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [imageData, setImageData] = useState(null);
@@ -139,7 +139,7 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
     }));
 
     try {
-      const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing);
+      const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing, healthMap);
       let fullText = '';
 
       // Add a streaming placeholder

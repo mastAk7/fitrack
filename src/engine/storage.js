@@ -2,6 +2,7 @@ const DIET_KEY = 'sc_diet3';
 const WORK_KEY = 'sc_work3';
 const PLAN_MODS_KEY = 'sc_plan_mods';
 const TOMBSTONES_KEY = 'sc_tombstones';
+const HEALTH_KEY = 'sc_health';
 
 function readKey(key) {
   try {
@@ -118,4 +119,18 @@ export function addTombstone(id) {
   const t = loadTombstones();
   t.add(id);
   saveTombstones(t);
+}
+
+// health: { [dateStr]: { sleep_h: number, water: number } }
+export function loadHealth() {
+  try {
+    const raw = localStorage.getItem(HEALTH_KEY);
+    return JSON.parse(raw) || {};
+  } catch { return {}; }
+}
+
+export function saveHealth(obj) {
+  try {
+    localStorage.setItem(HEALTH_KEY, JSON.stringify(obj));
+  } catch {}
 }

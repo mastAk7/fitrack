@@ -14,7 +14,13 @@ const RATING_COLORS = {
   too_many_calories: '#ff5252',
 };
 
-export default function AnalyticsTab({ dietMap, workMap, targets }) {
+function scoreColor(score) {
+  if (score >= 75) return '#00e676';
+  if (score >= 50) return '#ffab40';
+  return '#ff5252';
+}
+
+export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {} }) {
   const dailyAgg = useMemo(() => getDailyAggregates(dietMap, 14), [dietMap]);
 
   const avgPro = useMemo(() => {
@@ -80,6 +86,63 @@ export default function AnalyticsTab({ dietMap, workMap, targets }) {
     return { counts, total };
   }, [dietMap]);
 
+  // Build last-14-days data enriched with health
+  const enrichedData = useMemo(() => {
+    const workDatesSet = new Set([...workMap.values()].map(w => w.date));
+    // Generate last 14 calendar days
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const ds = d.toISOString().split('T')[0];
+      const agg = dailyAgg.find(a => a.date === ds) || { pro: 0, cal: 0, meals: 0 };
+      const h = healthMap[ds] || {};
+      const sleep_h = h.sleep_h || 0;
+      const water = h.water || 0;
+      const hasWorkout = workDatesSet.has(ds);
+
+      // Normalized scores (0–1 each)
+      const proScore  = agg.pro > 0 ? Math.min(1, agg.pro / targets.pro) : null;
+      const calScore  = agg.cal > 0 ? Math.max(0, 1 - Math.max(0, agg.cal - targets.cal) / targets.cal) : null;
+      const workScore = (agg.meals > 0 || hasWorkout) ? (hasWorkout ? 1 : 0) : null;
+      const sleepScore = sleep_h > 0 ? Math.min(1, sleep_h / 8) : null;
+      const waterScore = water > 0 ? Math.min(1, water / 8) : null;
+
+      const factors = [proScore, calScore, workScore, sleepScore, waterScore].filter(f => f !== null);
+      const overall = factors.length >= 2
+        ? Math.round(factors.reduce((s, f) => s + f, 0) / factors.length * 100)
+        : null;
+
+      days.push({
+        date: ds.slice(5),
+        pro: agg.pro, cal: agg.cal,
+        sleep: sleep_h || null,
+        water: water || null,
+        overall,
+        scoreColor: overall !== null ? scoreColor(overall) : '#4a4a5a',
+      });
+    }
+    return days;
+  }, [dailyAgg, workMap, healthMap, targets]);
+
+  const sleepData  = useMemo(() => enrichedData.filter(d => d.sleep !== null), [enrichedData]);
+  const waterData  = useMemo(() => enrichedData.filter(d => d.water !== null), [enrichedData]);
+  const scoreData  = useMemo(() => enrichedData.filter(d => d.overall !== null), [enrichedData]);
+
+  const avgSleep = useMemo(() => {
+    if (!sleepData.length) return null;
+    return Math.round(sleepData.reduce((s, d) => s + d.sleep, 0) / sleepData.length * 10) / 10;
+  }, [sleepData]);
+
+  const avgWater = useMemo(() => {
+    if (!waterData.length) return null;
+    return Math.round(waterData.reduce((s, d) => s + d.water, 0) / waterData.length);
+  }, [waterData]);
+
+  const avgScore = useMemo(() => {
+    if (!scoreData.length) return null;
+    return Math.round(scoreData.reduce((s, d) => s + d.overall, 0) / scoreData.length);
+  }, [scoreData]);
+
   const tooltipStyle = {
     background: '#13131a',
     border: '1px solid #1e1e2a',
@@ -90,6 +153,53 @@ export default function AnalyticsTab({ dietMap, workMap, targets }) {
 
   return (
     <div style={{ padding: '16px 16px 80px' }}>
+      {/* Overall Progress Score */}
+      {scoreData.length >= 3 && (
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2a', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Overall Progress Score</div>
+            {avgScore !== null && (
+              <span style={{ fontSize: 14, fontWeight: 700, color: scoreColor(avgScore) }}>{avgScore}%</span>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: '#4a4a5a', marginBottom: 12 }}>
+            Combines protein, calories, workouts{sleepData.length > 0 ? ', sleep' : ''}{waterData.length > 0 ? ', water' : ''} — normalized 0–100
+          </div>
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={scoreData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="date" tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#7a7a8a' }} formatter={v => [`${v}%`, 'Score']} />
+              <ReferenceLine y={75} stroke="#00e676" strokeDasharray="4 4" strokeOpacity={0.3} />
+              <ReferenceLine y={50} stroke="#ffab40" strokeDasharray="4 4" strokeOpacity={0.3} />
+              <Line
+                type="monotone" dataKey="overall" stroke="#b388ff" strokeWidth={2.5}
+                dot={(props) => {
+                  const { cx, cy, payload } = props;
+                  return <circle key={`p-${cx}`} cx={cx} cy={cy} r={5} fill={scoreColor(payload.overall)} stroke="#0a0a0f" strokeWidth={1.5} />;
+                }}
+                activeDot={{ r: 6, fill: '#e8e8ed' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Protein', color: '#00e676' },
+              { label: 'Calories', color: '#ffab40' },
+              { label: 'Workout', color: '#b388ff' },
+              ...(sleepData.length > 0 ? [{ label: 'Sleep', color: '#b388ff' }] : []),
+              ...(waterData.length > 0 ? [{ label: 'Water', color: '#00bcd4' }] : []),
+            ].map(f => (
+              <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: f.color }} />
+                <span style={{ fontSize: 10, color: '#7a7a8a' }}>{f.label}</span>
+              </div>
+            ))}
+            <span style={{ fontSize: 10, color: '#4a4a5a', marginLeft: 'auto' }}>equally weighted</span>
+          </div>
+        </div>
+      )}
+
       {/* Adaptive targets card */}
       <div style={{
         background: '#13131a', border: '1px solid #1e1e2a',
@@ -279,7 +389,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets }) {
       )}
 
       {/* Streaks */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <div style={{
           flex: 1, background: '#13131a', border: '1px solid #1e1e2a',
           borderRadius: 14, padding: '14px 16px', textAlign: 'center',
@@ -297,6 +407,72 @@ export default function AnalyticsTab({ dietMap, workMap, targets }) {
           <div style={{ fontSize: 10, color: '#4a4a5a' }}>last 14 days</div>
         </div>
       </div>
+
+      {/* Sleep trend */}
+      {sleepData.length > 0 && (
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2a', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Sleep (14 days)</div>
+            {avgSleep !== null && (
+              <span style={{ fontSize: 12, color: avgSleep >= 7 ? '#b388ff' : '#ffab40' }}>avg {avgSleep}h</span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={130}>
+            <LineChart data={enrichedData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="date" tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 10]} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#7a7a8a' }} formatter={v => v !== null ? [`${v}h`, 'Sleep'] : ['-', 'Sleep']} />
+              <ReferenceLine y={8} stroke="#b388ff" strokeDasharray="4 4" strokeOpacity={0.4} />
+              <ReferenceLine y={6} stroke="#ffab40" strokeDasharray="3 3" strokeOpacity={0.3} />
+              <Line
+                type="monotone" dataKey="sleep" stroke="#b388ff" strokeWidth={2}
+                connectNulls={false}
+                dot={(props) => {
+                  const { cx, cy, payload } = props;
+                  if (payload.sleep === null) return null;
+                  const c = payload.sleep >= 7 ? '#b388ff' : payload.sleep >= 6 ? '#ffab40' : '#ff5252';
+                  return <circle key={`s-${cx}`} cx={cx} cy={cy} r={4} fill={c} stroke="none" />;
+                }}
+                activeDot={{ r: 5, fill: '#e8e8ed' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            {[['#b388ff', '≥7h good'], ['#ffab40', '6–7h ok'], ['#ff5252', '<6h poor']].map(([c, l]) => (
+              <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+                <span style={{ fontSize: 10, color: '#7a7a8a' }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Water trend */}
+      {waterData.length > 0 && (
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2a', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Water (14 days)</div>
+            {avgWater !== null && (
+              <span style={{ fontSize: 12, color: avgWater >= 8 ? '#00bcd4' : '#ffab40' }}>avg {avgWater} glasses</span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={120}>
+            <BarChart data={enrichedData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="date" tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#4a4a5a', fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 12]} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#7a7a8a' }} formatter={v => v !== null ? [`${v} glasses`, 'Water'] : ['-', 'Water']} />
+              <ReferenceLine y={8} stroke="#00bcd4" strokeDasharray="4 4" strokeOpacity={0.4} />
+              <Bar dataKey="water" radius={[3, 3, 0, 0]}>
+                {enrichedData.map((entry, i) => (
+                  <Cell key={i} fill={entry.water === null ? 'transparent' : entry.water >= 8 ? '#00bcd4' : entry.water >= 5 ? '#ffab40' : '#ff5252'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
     </div>
   );
 }

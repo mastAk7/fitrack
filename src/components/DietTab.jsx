@@ -4,6 +4,7 @@ import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
 import { saveDiet, addTombstone } from '../engine/storage.js';
+import HealthWidget from './HealthWidget.jsx';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -37,7 +38,7 @@ function isSimilar(a, b) {
   return overlap / shorter.length >= 0.6;
 }
 
-export default function DietTab({ dietMap, setDietMap, targets }) {
+export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHealthMap }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [text, setText] = useState('');
   const [imageData, setImageData] = useState(null);
@@ -212,6 +213,9 @@ export default function DietTab({ dietMap, setDietMap, targets }) {
         <TargetBar label="Protein" value={dayProtein} target={targets.pro} unit="g" color="#00e676" />
         <TargetBar label="Calories" value={dayCal} target={targets.cal} unit=" kcal" color="#ffab40" />
       </div>
+
+      {/* Sleep & Water */}
+      <HealthWidget date={selectedDate} healthMap={healthMap} setHealthMap={setHealthMap} />
 
       {/* Log input */}
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e1e2a' }}>
