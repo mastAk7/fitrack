@@ -109,18 +109,29 @@ export async function callClaude({ messages, system, max_tokens = 1024 }) {
     }
 
     if (!res.ok) {
-      const err = await res.text();
-      // 404 = wrong model ID — skip silently and try next
+      const errText = await res.text();
+      // 404 = wrong model ID — skip to next
       if (res.status === 404) {
         lastErr = new Error(`Model not found: ${model}`);
         continue;
       }
-      throw new Error(`Gemini API error ${res.status} (${model}): ${err}`);
+      // 400 can mean this specific model doesn't support the request (e.g. vision not supported,
+      // content policy, or payload issue) — try next model before giving up
+      if (res.status === 400) {
+        lastErr = new Error(`Bad request (${model}): ${errText.slice(0, 200)}`);
+        continue;
+      }
+      // 401/403 = auth error — no point retrying other models with same key
+      throw new Error(`Gemini API error ${res.status} (${model}): ${errText.slice(0, 300)}`);
     }
 
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('Empty response from Gemini');
+    if (!text) {
+      // Some models return a blocked/empty response — try next
+      lastErr = new Error(`Empty response from ${model}`);
+      continue;
+    }
     return text;
   }
 
@@ -152,12 +163,16 @@ export async function callClaudeStream({ messages, system, max_tokens = 1024, on
     }
 
     if (!res.ok) {
-      const err = await res.text();
+      const errText = await res.text();
       if (res.status === 404) {
         lastErr = new Error(`Model not found: ${model}`);
         continue;
       }
-      throw new Error(`Gemini API error ${res.status} (${model}): ${err}`);
+      if (res.status === 400) {
+        lastErr = new Error(`Bad request (${model}): ${errText.slice(0, 200)}`);
+        continue;
+      }
+      throw new Error(`Gemini API error ${res.status} (${model}): ${errText.slice(0, 300)}`);
     }
 
     const reader = res.body.getReader();

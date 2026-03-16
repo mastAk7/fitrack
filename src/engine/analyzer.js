@@ -8,6 +8,30 @@ function rateEntry(protein_g, calories, dailyCal = 2000) {
   return 'ok';
 }
 
+// Shared vessel-size anchor — gives Gemini consistent gram equivalents so it can
+// apply its own food knowledge for precise macros per specific dish.
+const FOOD_REF = `
+VESSEL SIZES — always convert these to grams before estimating macros:
+  small bowl  = ~150 ml  ≈ 150–180 g of food
+  medium bowl = ~250 ml  ≈ 250–300 g of food
+  big bowl    = ~400 ml  ≈ 400–450 g of food
+  small plate = ~150–200 g of food
+  big plate   = ~300–400 g of food
+
+BREAD (standard Indian sizes):
+  1 roti / chapati = ~30 g → 100 kcal / 3 g protein
+  1 big roti       = ~40 g → 130 kcal / 4 g protein
+  1 paratha (plain)= ~60 g → 200 kcal / 5 g protein
+  1 puri           = ~25 g → 90 kcal  / 2 g protein
+  1 slice bread    = ~25 g → 80 kcal  / 3 g protein
+
+For every other food, use the vessel size to determine grams, then apply standard
+nutritional values for that specific dish (e.g. chilli paneer, dal makhani, palak
+paneer, rajma, chole, upma, poha — each has its own macro profile; do NOT
+collapse them into a generic "sabzi" or "dal" category).
+
+Quantities multiply linearly: 2 medium bowls = 2 × one medium bowl.`.trim();
+
 /**
  * Analyzes a meal from text. Always uses Gemini for accurate quantity parsing.
  */
@@ -23,18 +47,23 @@ export async function analyzeMealText(text, dailyCalTarget = 2000) {
 export async function analyzeMealsBatch(entries, dailyCalTarget = 2000) {
   const threshold = Math.round(dailyCalTarget * 0.45);
   const list = entries.map(e => JSON.stringify({ id: e.id, text: e.summary || '' })).join(',\n');
-  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day. He eats Indian home-cooked food primarily.
+  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day. He describes meals using vessel sizes (small bowl, medium bowl, big bowl, small plate, big plate) and bread counts.
 
-Analyze each meal below and return ONLY a JSON array (no markdown, no extra text).
+${FOOD_REF}
 
-Indian food reference: 1 roti=100 kcal/3g P, 1 bowl dal=250 kcal/15g P, paneer 100g=260 kcal/18g P, 1 bowl curd=100 kcal/6g P, soya chunks 100g dry=345 kcal/52g P, 1 egg=70 kcal/6g P, milk 250ml=150 kcal/8g P, rice 1 bowl=200 kcal/4g P.
+Step 1: convert vessel size → grams using the table above.
+Step 2: apply accurate macros for the SPECIFIC dish (chilli paneer ≠ palak paneer ≠ matar paneer; dal makhani ≠ moong dal; etc.). Use your food knowledge — do NOT flatten different dishes into a generic category.
+Step 3: multiply linearly for multiple servings.
+
+Analyze each meal below. Return ONLY a JSON array — no markdown, no extra text.
 
 Meals:
 [${list}]
 
-For each return: {"id":<id>,"summary":"brief description","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"specific coaching note with numbers (e.g. 'only 6g protein — add curd to hit 12g')","items":["item with quantity"]}
-Rating: "good" if protein>=15 AND calories<=${threshold} | "low_protein" if protein<10 | "too_many_calories" if calories>${threshold} | else "ok".
-Be accurate with quantities — "2 roti" is double "1 roti". Cover all cuisines.`;
+For each meal return:
+{"id":<id>,"summary":"brief description naming the actual dish","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"one specific coaching note with exact numbers","items":["each dish with its exact quantity"]}
+
+Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok".`;
 
   const responseText = await callClaude({ max_tokens: 8192, messages: [{ role: 'user', content: prompt }] });
   const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
@@ -97,23 +126,24 @@ export async function analyzeMealImage(base64DataUri, textContext = '', dailyCal
 
 async function analyzeMealWithGemini(text, imageDataUri, dailyCalTarget = 2000) {
   const threshold = Math.round(dailyCalTarget * 0.45);
-  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day, protein target ~${Math.round(dailyCalTarget * 0.065)}g/day. He eats Indian home-cooked food.
+  const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day. He describes meals using vessel sizes (small bowl, medium bowl, big bowl, small plate, big plate) and bread counts.
 
-The user ${imageDataUri ? 'shared a photo of their meal' : `ate: "${text}"`}.
-${imageDataUri && text ? `Additional context: "${text}"` : ''}
+${FOOD_REF}
 
-Estimate macros accurately:
-- Pay close attention to quantities (e.g. "2 roti" ≠ "1 roti", "100g paneer" ≠ "50g paneer")
-- Indian food defaults: 1 roti = ~100 kcal / 3g P, 1 bowl dal = ~250 kcal / 15g P, paneer 100g = ~260 kcal / 18g P, 1 bowl curd = ~100 kcal / 6g P, soya chunks 100g dry = ~345 kcal / 52g P
-- For packaged/restaurant food: use standard values
-- Be accurate for all cuisines: Indian, Western, fast food, etc.
+${imageDataUri
+    ? `The user shared a photo of their meal.${text ? ` Context: "${text}"` : ' Identify all food items visible.'}`
+    : `The user ate: "${text}"`}
 
-The feedback field must be one specific, actionable coaching note — reference actual numbers (e.g. "Only 8g protein here — add a bowl of curd or 50g paneer to boost this meal to 14g+"). Never generic advice.
+Step 1: convert vessel size → grams using the table above.
+Step 2: apply accurate macros for the SPECIFIC dish — chilli paneer, dal makhani, palak paneer, chole, etc. each have distinct macro profiles. Use your food knowledge precisely; do NOT flatten into generic categories.
+Step 3: multiply linearly for multiple servings (2 medium bowls = 2×).
+
+Feedback must be one specific, actionable note with exact numbers (e.g. "Only 8g protein here — add a medium bowl of curd to reach 16g"). Never generic.
 
 Respond with ONLY valid JSON (no markdown, no extra text):
-{"summary":"brief description of what was eaten","protein_g":25,"calories":400,"rating":"good","feedback":"specific actionable coaching note with numbers","items":["food item 1 with quantity","food item 2 with quantity"]}
+{"summary":"dish name(s) with quantity","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"specific note with numbers","items":["each dish with exact quantity"]}
 
-Rating: "good" if protein>=15g AND calories<=${threshold} | "low_protein" if protein<10g | "too_many_calories" if calories>${threshold} | else "ok"`;
+Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok"`;
 
   try {
     const content = imageDataUri
