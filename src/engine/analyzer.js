@@ -11,12 +11,24 @@ function rateEntry(protein_g, calories, dailyCal = 2000) {
 // Shared vessel-size anchor — gives Gemini consistent gram equivalents so it can
 // apply its own food knowledge for precise macros per specific dish.
 const FOOD_REF = `
-VESSEL SIZES — always convert these to grams before estimating macros:
-  small bowl  = ~150 ml  ≈ 150–180 g of food
-  medium bowl = ~250 ml  ≈ 250–300 g of food
-  big bowl    = ~400 ml  ≈ 400–450 g of food
-  small plate = ~150–200 g of food
-  big plate   = ~300–400 g of food
+VESSEL SIZES — convert to grams of SOLID/DENSE food content, not total volume:
+  small bowl  ≈ 150–180 g dense food  (or ~100–120 g solids if watery)
+  medium bowl ≈ 250–300 g dense food  (or ~130–160 g solids if watery)
+  big bowl    ≈ 400–450 g dense food  (or ~220–260 g solids if watery)
+  small plate ≈ 150–200 g food
+  big plate   ≈ 300–400 g food
+
+WATERY / GRAVY PREPARATIONS ("water sabzi", thin dal, rasam, soup, kadhi, etc.):
+  Liquid makes up 40–60% of the bowl. Estimate ONLY the solid ingredient weight —
+  e.g. 1 medium bowl watery chole ≈ 130–150 g actual cooked chickpeas (rest is water/gravy).
+
+LEGUMES — ALWAYS use COOKED weight values (NOT dry/raw):
+  Cooked chickpeas / chole    = 9 g protein / 100 g,  164 kcal / 100 g
+  Cooked rajma (kidney beans) = 9 g protein / 100 g,  150 kcal / 100 g
+  Cooked moong dal (whole)    = 7 g protein / 100 g,  105 kcal / 100 g
+  Cooked toor / arhar dal     = 7 g protein / 100 g,  116 kcal / 100 g
+  Cooked chana dal            = 9 g protein / 100 g,  164 kcal / 100 g
+  (Dry legumes have 2× the protein density — never use dry values for a cooked dish.)
 
 BREAD (standard Indian sizes):
   1 roti / chapati = ~30 g → 100 kcal / 3 g protein
@@ -25,10 +37,8 @@ BREAD (standard Indian sizes):
   1 puri           = ~25 g → 90 kcal  / 2 g protein
   1 slice bread    = ~25 g → 80 kcal  / 3 g protein
 
-For every other food, use the vessel size to determine grams, then apply standard
-nutritional values for that specific dish (e.g. chilli paneer, dal makhani, palak
-paneer, rajma, chole, upma, poha — each has its own macro profile; do NOT
-collapse them into a generic "sabzi" or "dal" category).
+For all other dishes (chilli paneer, dal makhani, palak paneer, etc.) use your food
+knowledge for that specific dish. Do NOT flatten different dishes into a generic category.
 
 Quantities multiply linearly: 2 medium bowls = 2 × one medium bowl.`.trim();
 
