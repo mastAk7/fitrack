@@ -109,7 +109,7 @@ export default function MealCard({ entry, onDelete }) {
   const [confirming, setConfirming] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const isPending = entry.analyzed === false;
+  const isPending = entry.analyzed === false || entry.analyzed === 'analyzing';
   const hasItems = Array.isArray(entry.items) && entry.items.length > 0;
 
   return (

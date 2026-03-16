@@ -12,7 +12,8 @@
       "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1)",
       "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -5)",
       "Bash(cd \"C:\\\\Users\\\\aryan\\\\OneDrive\\\\Desktop\\\\fitrack\" && npm run build 2>&1 | tail -3)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(node:*)"
     ]
   }
 }

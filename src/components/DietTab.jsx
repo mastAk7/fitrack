@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
@@ -47,6 +47,7 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [dupWarning, setDupWarning] = useState(null); // similar existing meal
+  const autoAnalyzeTriggered = useRef(false);
 
   // All unique dates with meals, sorted descending
   const loggedDates = useMemo(() => {
@@ -64,9 +65,24 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   const dayProtein = Math.round(dayMeals.reduce((s, e) => s + (e.protein_g || 0), 0) * 10) / 10;
   const dayCal = Math.round(dayMeals.reduce((s, e) => s + (e.calories || 0), 0));
 
-  // Pending = saved but not yet analyzed
+  // Pending = saved but not yet analyzed (false) or interrupted mid-analysis ('analyzing')
   const pendingMeals = useMemo(() =>
-    [...dietMap.values()].filter(e => e.analyzed === false), [dietMap]);
+    [...dietMap.values()].filter(e => e.analyzed === false || e.analyzed === 'analyzing'), [dietMap]);
+
+  // Auto-analyze whenever pending meals appear (covers refresh mid-analysis,
+  // gist sync delivering pending meals, and new meals logged in the same session).
+  useEffect(() => {
+    if (pendingMeals.length === 0) {
+      // Reset so the next batch of pending meals triggers auto-analyze again
+      autoAnalyzeTriggered.current = false;
+      return;
+    }
+    if (!analyzing && !autoAnalyzeTriggered.current) {
+      autoAnalyzeTriggered.current = true;
+      handleAnalyze();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMeals.length]);
 
   function handleLog(force = false) {
     if (!text.trim() && !imageData) return;
@@ -131,7 +147,15 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
     setAnalyzing(true);
     setError('');
     try {
+      // Mark all pending meals as 'analyzing' in localStorage immediately,
+      // so a refresh mid-call doesn't re-trigger a duplicate analysis.
       const newMap = new Map(dietMap);
+      for (const e of pendingMeals) {
+        newMap.set(e.id, { ...e, analyzed: 'analyzing' });
+      }
+      setDietMap(newMap);
+      saveDiet(newMap);
+
       const textMeals = pendingMeals.filter(e => !e.imageData);
       const imageMeals = pendingMeals.filter(e => !!e.imageData);
 
