@@ -24,3 +24,7 @@ npm-debug.log*
 # Internal docs (not for public repo)
 PRD.md
 INTERNALS.md
+
+
+.claude/
+CLAUDE.md
