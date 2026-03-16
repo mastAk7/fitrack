@@ -70,10 +70,32 @@ Analyze each meal below. Return ONLY a JSON array — no markdown, no extra text
 Meals:
 [${list}]
 
-For each meal return:
-{"id":<id>,"summary":"brief description naming the actual dish","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"one specific coaching note with exact numbers","items":["each dish with its exact quantity"]}
+For each meal return exactly this shape (no extra keys):
+{
+  "id":<id>,
+  "summary":"brief description naming the actual dish",
+  "protein_g":<total protein, number>,
+  "calories":<total calories, number>,
+  "rating":"good|ok|low_protein|too_many_calories",
+  "feedback":"one specific coaching note with exact numbers",
+  "items":[
+    {
+      "name":"dish / ingredient name",
+      "qty":"human-readable quantity (e.g. '2 medium bowls (~280g)')",
+      "weight_g":<estimated grams, number>,
+      "calories":<item calories, number>,
+      "protein_g":<item protein, number>,
+      "carbs_g":<item carbs, number>,
+      "fat_g":<item fat, number>,
+      "fiber_g":<item fiber, number>,
+      "iron_mg":<item iron, number>,
+      "calcium_mg":<item calcium, number>
+    }
+  ]
+}
 
-Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok".`;
+Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok".
+The sum of item calories and protein_g must equal the top-level totals.`;
 
   const responseText = await callClaude({ max_tokens: 8192, messages: [{ role: 'user', content: prompt }] });
   const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
@@ -151,9 +173,30 @@ Step 3: multiply linearly for multiple servings (2 medium bowls = 2×).
 Feedback must be one specific, actionable note with exact numbers (e.g. "Only 8g protein here — add a medium bowl of curd to reach 16g"). Never generic.
 
 Respond with ONLY valid JSON (no markdown, no extra text):
-{"summary":"dish name(s) with quantity","protein_g":<number>,"calories":<number>,"rating":"good|ok|low_protein|too_many_calories","feedback":"specific note with numbers","items":["each dish with exact quantity"]}
+{
+  "summary":"dish name(s) with quantity",
+  "protein_g":<total protein, number>,
+  "calories":<total calories, number>,
+  "rating":"good|ok|low_protein|too_many_calories",
+  "feedback":"specific note with numbers",
+  "items":[
+    {
+      "name":"dish / ingredient name",
+      "qty":"human-readable quantity (e.g. '2 medium bowls (~280g)')",
+      "weight_g":<estimated grams, number>,
+      "calories":<item calories, number>,
+      "protein_g":<item protein, number>,
+      "carbs_g":<item carbs, number>,
+      "fat_g":<item fat, number>,
+      "fiber_g":<item fiber, number>,
+      "iron_mg":<item iron, number>,
+      "calcium_mg":<item calcium, number>
+    }
+  ]
+}
 
-Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok"`;
+Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok".
+The sum of item calories and protein_g must equal the top-level totals.`;
 
   try {
     const content = imageDataUri
