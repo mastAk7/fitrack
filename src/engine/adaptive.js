@@ -1,27 +1,41 @@
 /**
- * Computes adaptive calorie and protein targets from the full diet log.
- * Returns { cal, pro, week, phase }
+ * Computes adaptive calorie and protein targets from the full diet log and active goal.
+ * Returns { cal, pro, week, phase, goalType }
  */
-export function computeTargets(dietMap) {
+export function computeTargets(dietMap, goal = null) {
   const entries = [...dietMap.values()];
+  const goalType = goal?.goalType || 'cut';
 
-  if (entries.length === 0) {
-    return { cal: 2000, pro: 130, week: 1, phase: 'Ramp Up' };
+  // Sort all entries by date ascending to calculate week
+  let week = 1;
+  if (entries.length > 0) {
+    const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+    const firstDate = sorted[0].date;
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const first = new Date(firstDate + 'T12:00:00');
+    const now = new Date();
+    const weeksElapsed = Math.floor((now - first) / msPerWeek);
+    week = Math.max(1, Math.min(12, weeksElapsed + 1));
   }
 
-  // Sort all entries by date ascending
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-  const firstDate = sorted[0].date;
+  // Base calorie and protein baseline by goal type
+  let baseCal = 2000;
+  let basePro = 135;
 
-  // Week number: weeks elapsed since first logged meal, capped at 12
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const first = new Date(firstDate + 'T12:00:00');
-  const now = new Date();
-  const weeksElapsed = Math.floor((now - first) / msPerWeek);
-  const week = Math.max(1, Math.min(12, weeksElapsed + 1));
-
-  // Base calorie taper
-  let baseCal = 2000 - (week - 1) * 10; // week 1 = 2000, week 12 = 1890
+  if (goalType === 'bulk') {
+    baseCal = 2350 + (week - 1) * 15;
+    basePro = 145;
+  } else if (goalType === 'recomp') {
+    baseCal = 2100;
+    basePro = 145 + Math.min(15, week * 2);
+  } else if (goalType === 'strength') {
+    baseCal = 2250;
+    basePro = 140;
+  } else {
+    // Standard cut
+    baseCal = 2000 - (week - 1) * 10; // week 1 = 2000, week 12 = 1890
+    basePro = 130 + (week - 1) * 2;
+  }
 
   // Last 14 logged days
   const uniqueDates = [...new Set(entries.map(e => e.date))].sort().slice(-14);
@@ -40,24 +54,25 @@ export function computeTargets(dietMap) {
   const avgCal = days.length > 0 ? days.reduce((s, d) => s + d.cal, 0) / days.length : baseCal;
   const avgPro = days.length > 0 ? days.reduce((s, d) => s + d.pro, 0) / days.length : 47;
 
-  // Adaptive calorie adjustment
-  if (avgCal > baseCal * 1.1) {
-    baseCal = Math.round(baseCal * 0.95);
+  // Adaptive calorie adjustment (smoothing)
+  if (goalType === 'cut' && avgCal > baseCal * 1.1) {
+    baseCal = Math.round(baseCal * 0.96);
   }
 
-  // Protein target
-  const proteinHitDays = days.filter(d => d.pro >= 130).length;
+  // Protein hit rate
+  const proteinHitDays = days.filter(d => d.pro >= basePro).length;
   const hitRate = days.length > 0 ? proteinHitDays / days.length : 0;
 
-  let basePro = 130;
-  if (hitRate < 0.4) {
-    basePro = Math.round(avgPro + 20);
-  } else if (hitRate > 0.7) {
-    basePro = 135;
+  if (hitRate < 0.4 && days.length >= 3) {
+    basePro = Math.round(avgPro + 15);
+  } else if (hitRate > 0.75) {
+    basePro = Math.min(160, basePro + 5);
   }
 
   // Guard rails
-  const cal = Math.max(1750, Math.min(2100, baseCal));
+  const minCal = goalType === 'bulk' ? 2100 : 1750;
+  const maxCal = goalType === 'bulk' ? 2700 : 2200;
+  const cal = Math.max(minCal, Math.min(maxCal, baseCal));
   const pro = Math.max(130, Math.min(165, basePro));
 
   // Phase
@@ -67,7 +82,7 @@ export function computeTargets(dietMap) {
   else if (week <= 10) phase = 'Deep Cut';
   else phase = 'Final Push';
 
-  return { cal, pro, week, phase };
+  return { cal, pro, week, phase, goalType };
 }
 
 /**

@@ -5,7 +5,9 @@ import {
 } from 'recharts';
 import StatCard from './StatCard.jsx';
 import MuscleAnatomy from './MuscleAnatomy.jsx';
+import DailyEvaluationCard from './DailyEvaluationCard.jsx';
 import { getDailyAggregates, getProteinStreak } from '../engine/adaptive.js';
+import { calculateDailyScore } from '../engine/evaluation.js';
 
 const RATING_COLORS = {
   good: '#00e676',
@@ -86,7 +88,31 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
     return { counts, total };
   }, [dietMap]);
 
-  // Build last-14-days data enriched with health
+  // Today evaluation metrics
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const todayAgg = useMemo(() => {
+    let pro = 0; let cal = 0; let meals = 0;
+    for (const e of dietMap.values()) {
+      if (e.date === todayStr) {
+        pro += e.protein || 0;
+        cal += e.calories || 0;
+        meals++;
+      }
+    }
+    return { pro, cal, meals };
+  }, [dietMap, todayStr]);
+
+  const todayHasWorkout = useMemo(() => {
+    return [...workMap.values()].some(w => w.date === todayStr);
+  }, [workMap, todayStr]);
+
+  const todayHealth = healthMap[todayStr] || {};
+
+  // Build last-14-days data enriched with health and calibrated scoring
   const enrichedData = useMemo(() => {
     const workDatesSet = new Set([...workMap.values()].map(w => w.date));
     // Generate last 14 calendar days
@@ -100,17 +126,11 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
       const water = h.water || 0;
       const hasWorkout = workDatesSet.has(ds);
 
-      // Normalized scores (0–1 each)
-      const proScore  = agg.pro > 0 ? Math.min(1, agg.pro / targets.pro) : null;
-      const calScore  = agg.cal > 0 ? Math.max(0, 1 - Math.max(0, agg.cal - targets.cal) / targets.cal) : null;
-      const workScore = (agg.meals > 0 || hasWorkout) ? (hasWorkout ? 1 : 0) : null;
-      const sleepScore = sleep_h > 0 ? Math.min(1, sleep_h / 8) : null;
-      const waterScore = water > 0 ? Math.min(1, water / 8) : null;
-
-      const factors = [proScore, calScore, workScore, sleepScore, waterScore].filter(f => f !== null);
-      const overall = factors.length >= 2
-        ? Math.round(factors.reduce((s, f) => s + f, 0) / factors.length * 100)
+      const hasActivity = agg.meals > 0 || hasWorkout || sleep_h > 0 || water > 0;
+      const evalResult = hasActivity
+        ? calculateDailyScore(agg, targets, hasWorkout, h)
         : null;
+      const overall = evalResult ? evalResult.score : null;
 
       days.push({
         date: ds.slice(5),
@@ -153,17 +173,28 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
 
   return (
     <div style={{ padding: '16px 16px 80px' }}>
+      {/* Daily Recomp Performance & Gamified Evaluation */}
+      <DailyEvaluationCard
+        dayAgg={todayAgg}
+        targets={targets}
+        hasWorkout={todayHasWorkout}
+        health={todayHealth}
+        dietMap={dietMap}
+        workMap={workMap}
+        healthMap={healthMap}
+      />
+
       {/* Overall Progress Score */}
       {scoreData.length >= 3 && (
         <div style={{ background: '#13131a', border: '1px solid #1e1e2a', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Overall Progress Score</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Overall Progress Score (14-Day Trend)</div>
             {avgScore !== null && (
               <span style={{ fontSize: 14, fontWeight: 700, color: scoreColor(avgScore) }}>{avgScore}%</span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: '#4a4a5a', marginBottom: 12 }}>
-            Combines protein, calories, workouts{sleepData.length > 0 ? ', sleep' : ''}{waterData.length > 0 ? ', water' : ''} — normalized 0–100
+          <div style={{ fontSize: 11, color: '#7a7a8a', marginBottom: 12 }}>
+            Calibrated 4-pillar athletic index (Protein 35%, Deficit 25%, Workout 25%, Recovery 15%)
           </div>
           <ResponsiveContainer width="100%" height={150}>
             <LineChart data={scoreData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -182,20 +213,19 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
               />
             </LineChart>
           </ResponsiveContainer>
-          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             {[
-              { label: 'Protein', color: '#00e676' },
-              { label: 'Calories', color: '#ffab40' },
-              { label: 'Workout', color: '#b388ff' },
-              ...(sleepData.length > 0 ? [{ label: 'Sleep', color: '#b388ff' }] : []),
-              ...(waterData.length > 0 ? [{ label: 'Water', color: '#00bcd4' }] : []),
+              { label: 'Protein (35%)', color: '#00e676' },
+              { label: 'Deficit (25%)', color: '#ffab40' },
+              { label: 'Workout (25%)', color: '#b388ff' },
+              { label: 'Recovery (15%)', color: '#00bcd4' },
             ].map(f => (
               <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: f.color }} />
                 <span style={{ fontSize: 10, color: '#7a7a8a' }}>{f.label}</span>
               </div>
             ))}
-            <span style={{ fontSize: 10, color: '#4a4a5a', marginLeft: 'auto' }}>equally weighted</span>
+            <span style={{ fontSize: 10, color: '#00e676', marginLeft: 'auto', fontWeight: 600 }}>calibrated weights</span>
           </div>
         </div>
       )}

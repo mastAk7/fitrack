@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { loadUserApiKeys, saveUserApiKeys } from '../engine/storage.js';
 
 const GIST_ID_KEY = 'sc_gist_id';
 
@@ -12,6 +13,10 @@ export default function SyncSettings({ onClose, onSyncNow }) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const [userKeys, setUserKeys] = useState(() => loadUserApiKeys());
+  const [geminiKeyInput, setGeminiKeyInput] = useState(userKeys.geminiKey || '');
+  const [groqKeyInput, setGroqKeyInput] = useState(userKeys.groqKey || '');
+
   function handleSave() {
     const trimmed = input.trim();
     if (trimmed) {
@@ -19,6 +24,15 @@ export default function SyncSettings({ onClose, onSyncNow }) {
     } else {
       localStorage.removeItem(GIST_ID_KEY);
     }
+
+    const newKeys = {
+      ...userKeys,
+      geminiKey: geminiKeyInput.trim() || undefined,
+      groqKey: groqKeyInput.trim() || undefined,
+    };
+    saveUserApiKeys(newKeys);
+    setUserKeys(newKeys);
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -106,6 +120,46 @@ export default function SyncSettings({ onClose, onSyncNow }) {
           )}
         </div>
 
+        {/* Custom AI API Keys (Optional Fallbacks) */}
+        <div style={{ marginBottom: 18, borderTop: '1px solid #1e1e2a', paddingTop: 14 }}>
+          <div style={{ fontSize: 11, color: '#4a4a5a', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 4 }}>
+            AI API Keys (Optional Fallbacks)
+          </div>
+          <div style={{ fontSize: 11, color: '#7a7a8a', marginBottom: 10 }}>
+            Fitrack already uses built-in key rotation & local 0-token food parsing. If you hit rate limits, paste your own free Gemini or Groq key:
+          </div>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#b388ff', marginBottom: 4, fontWeight: 500 }}>Personal Gemini API Key</div>
+            <input
+              type="password"
+              value={geminiKeyInput}
+              onChange={e => setGeminiKeyInput(e.target.value)}
+              placeholder="AIzaSy... (from Google AI Studio)"
+              style={{
+                width: '100%', boxSizing: 'border-box', background: '#0d0d14', border: '1px solid #1e1e2a',
+                borderRadius: 8, padding: '8px 12px', color: '#e8e8ed',
+                fontSize: 12, outline: 'none', fontFamily: 'monospace',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: '#00e676', marginBottom: 4, fontWeight: 500 }}>Personal Groq API Key</div>
+            <input
+              type="password"
+              value={groqKeyInput}
+              onChange={e => setGroqKeyInput(e.target.value)}
+              placeholder="gsk_... (from Groq Console)"
+              style={{
+                width: '100%', boxSizing: 'border-box', background: '#0d0d14', border: '1px solid #1e1e2a',
+                borderRadius: 8, padding: '8px 12px', color: '#e8e8ed',
+                fontSize: 12, outline: 'none', fontFamily: 'monospace',
+              }}
+            />
+          </div>
+        </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={handleSave}
@@ -114,7 +168,7 @@ export default function SyncSettings({ onClose, onSyncNow }) {
               border: 'none', borderRadius: 10, padding: '10px',
               color: '#0a0a0f', fontSize: 13, fontWeight: 600, cursor: 'pointer',
             }}
-          >{saved ? 'Saved!' : 'Save Gist ID'}</button>
+          >{saved ? 'Settings Saved!' : 'Save Settings'}</button>
           {hasToken && (
             <button
               onClick={() => { onSyncNow(); onClose(); }}

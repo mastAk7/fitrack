@@ -12,7 +12,7 @@ const SYNC_META = {
   idle:    { color: '#4a4a5a', label: null },
 };
 
-export default function Header({ phase, week, syncStatus = 'idle', lastSync = null, onSettingsOpen }) {
+export default function Header({ phase, week, syncStatus = 'idle', lastSync = null, onSettingsOpen, goal, onGoalOpen }) {
   const colors = PHASE_COLORS[phase] || PHASE_COLORS['Ramp Up'];
   const sync = SYNC_META[syncStatus] || SYNC_META.idle;
 
@@ -37,33 +37,34 @@ export default function Header({ phase, week, syncStatus = 'idle', lastSync = nu
       margin: '0 auto',
       width: '100%',
     }}>
-      <div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#e8e8ed', letterSpacing: '-0.3px' }}>
-          Fitrack
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#e8e8ed', letterSpacing: '-0.3px' }}>
+            Fitrack
+          </div>
+          <span style={{ fontSize: 11, color: '#7a7a8a' }}>Week {week}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <span style={{ fontSize: 11, color: '#7a7a8a' }}>Week {week} · Adaptive Cut</span>
-          {sync.label && (
-            <>
-              <span style={{ color: '#2a2a3a', fontSize: 10 }}>·</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: sync.color,
-                  display: 'inline-block',
-                  ...(syncStatus === 'syncing' ? { animation: 'pulse 1s infinite' } : {}),
-                }} />
-                <span style={{ fontSize: 10, color: sync.color }}>{sync.label}</span>
-              </span>
-            </>
-          )}
-          {syncStatus === 'idle' && lastSync && (
-            <>
-              <span style={{ color: '#2a2a3a', fontSize: 10 }}>·</span>
-              <span style={{ fontSize: 10, color: '#4a4a5a' }}>↑ {formatSync(lastSync)}</span>
-            </>
-          )}
-        </div>
+
+        {/* Goal Pill */}
+        <button
+          onClick={onGoalOpen}
+          title="Click to customize goal"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            background: '#13131c', border: '1px solid #2a2a3e',
+            borderRadius: 7, padding: '3px 8px', marginTop: 4,
+            cursor: 'pointer', maxWidth: 280, textAlign: 'left',
+          }}
+        >
+          <span style={{ fontSize: 11 }}>🎯</span>
+          <span style={{
+            fontSize: 11, color: '#b388ff', fontWeight: 600,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {goal?.text ? (goal.text.length > 34 ? goal.text.slice(0, 34) + '…' : goal.text) : 'Set Goal'}
+          </span>
+          <span style={{ fontSize: 10, color: '#5a5a7a' }}>✎</span>
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

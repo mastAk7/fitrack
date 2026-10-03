@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
+import MealImproviser from './MealImproviser.jsx';
 import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
 import { saveDiet, addTombstone } from '../engine/storage.js';
 import HealthWidget from './HealthWidget.jsx';
@@ -237,6 +238,15 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e1e2a' }}>
         <TargetBar label="Protein" value={dayProtein} target={targets.pro} unit="g" color="#00e676" />
         <TargetBar label="Calories" value={dayCal} target={targets.cal} unit=" kcal" color="#ffab40" />
+      </div>
+
+      {/* Dynamic Next-Meal Guidance & Improviser */}
+      <div style={{ padding: '14px 16px 0' }}>
+        <MealImproviser
+          dayMeals={dayMeals}
+          targets={targets}
+          onSelectSuggestion={(suggestionText) => setText(suggestionText)}
+        />
       </div>
 
       {/* Sleep & Water */}

@@ -61,7 +61,20 @@ export function saveDiet(map) {
   try {
     localStorage.setItem(DIET_KEY, JSON.stringify([...map.values()]));
   } catch (err) {
-    console.error('saveDiet error:', err);
+    console.warn('saveDiet quota error, attempting to prune analyzed image data:', err);
+    try {
+      // Keep only images of unanalyzed or recent entries
+      const sanitized = [...map.values()].map((entry, idx, arr) => {
+        // Keep image only if pending analysis or in the 2 most recent entries
+        if (entry.analyzed === true && idx < arr.length - 2 && entry.imageData) {
+          return { ...entry, imageData: undefined };
+        }
+        return entry;
+      });
+      localStorage.setItem(DIET_KEY, JSON.stringify(sanitized));
+    } catch (retryErr) {
+      console.error('Critical saveDiet quota error:', retryErr);
+    }
   }
 }
 
@@ -174,4 +187,52 @@ export function saveCoachHistory(messages) {
 
 export function clearCoachHistory() {
   try { localStorage.removeItem(COACH_HISTORY_KEY); } catch {}
+}
+
+const GOAL_KEY = 'sc_goal';
+export const DEFAULT_GOAL = {
+  text: "Cut to ~71 kg over 12 weeks with visible muscle definition while maintaining volleyball stamina",
+  goalType: "cut", // "cut" | "recomp" | "bulk" | "strength"
+  targetWeight_kg: 71,
+  startWeight_kg: 78,
+  weeklyPace_kg: 0.5,
+  priority: "protein_and_strength",
+  updatedAt: new Date().toISOString().split('T')[0],
+};
+
+export function loadGoal() {
+  try {
+    const raw = localStorage.getItem(GOAL_KEY);
+    if (!raw) return DEFAULT_GOAL;
+    return { ...DEFAULT_GOAL, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_GOAL;
+  }
+}
+
+export function saveGoal(goal) {
+  try {
+    localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
+  } catch (err) {
+    console.error('saveGoal error:', err);
+  }
+}
+
+const USER_KEYS_KEY = 'sc_user_api_keys';
+// Shape: { geminiKey?: string, groqKey?: string, openRouterKey?: string }
+export function loadUserApiKeys() {
+  try {
+    const raw = localStorage.getItem(USER_KEYS_KEY);
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveUserApiKeys(keys) {
+  try {
+    localStorage.setItem(USER_KEYS_KEY, JSON.stringify(keys));
+  } catch (err) {
+    console.error('saveUserApiKeys error:', err);
+  }
 }

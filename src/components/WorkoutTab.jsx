@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
 import { savePlanMods, saveWork, addTombstone } from '../engine/storage.js';
 import { extractMusclesBatch } from '../engine/analyzer.js';
+import OverloadCard from './OverloadCard.jsx';
+import { getOverloadTargets, getMuscleConsistencyStreaks } from '../engine/overloadEngine.js';
 
 function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -38,7 +40,7 @@ Bicep curls 3 × 10 @ 8kg, drop to 6kg
 Wrist curls 3 × 20
 Plank 3 × 60s`;
 
-export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods }) {
+export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods, healthMap = {} }) {
   const today = todayStr();
   const [selectedDate, setSelectedDate] = useState(today);
   const [log, setLog] = useState('');
@@ -53,6 +55,15 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
   const mod = planMods[planIdx];
   const refExercises = mod || plan.exercises;
   const isModified = !!mod;
+
+  const sleep_h = healthMap[selectedDate]?.sleep_h || 7;
+  const overloadTargets = useMemo(() => {
+    return getOverloadTargets(refExercises, workMap, sleep_h);
+  }, [refExercises, workMap, sleep_h]);
+
+  const consistency = useMemo(() => {
+    return getMuscleConsistencyStreaks(workMap);
+  }, [workMap]);
 
   const dayWorkouts = useMemo(() => {
     return [...workMap.values()]
@@ -225,6 +236,13 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods 
 
       {/* Workout log input */}
       <div style={{ padding: '14px 16px' }}>
+        {/* Dynamic Progressive Overload Target Card */}
+        <OverloadCard
+          targets={overloadTargets}
+          consistency={consistency}
+          sleep_h={sleep_h}
+        />
+
         <div style={{ fontSize: 11, color: '#4a4a5a', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 8 }}>
           Workout Log
         </div>

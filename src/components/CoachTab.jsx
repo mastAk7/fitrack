@@ -7,12 +7,12 @@ import { saveDiet, saveWork, savePlanMods, loadCoachHistory, saveCoachHistory, c
 import { analyzeMealsBatch, analyzeMealImage, extractMusclesBatch } from '../engine/analyzer.js';
 
 const QUICK_PROMPTS = [
-  'What to eat right now?',
-  'Am I on track?',
+  'Suggest my next meal',
+  'Am I on track with my goal?',
+  'What is my overload target today?',
+  'Daily recomp review',
   'Shorten today\'s workout',
-  'I\'m tired today',
   '3 AM hunger 😅',
-  'Progress review',
 ];
 
 function todayStr() {
@@ -47,7 +47,7 @@ function parseAssistantResponse(raw) {
   return { text, workoutMod, mealLog };
 }
 
-export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '', healthMap = {} }) {
+export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '', healthMap = {}, goal = null }) {
   const [messages, setMessages] = useState(() => loadCoachHistory());
   const [input, setInput] = useState('');
   const [imageData, setImageData] = useState(null);
@@ -156,7 +156,7 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
-      const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing, healthMap);
+      const systemPrompt = buildCoachContext(freshDietMap, freshWorkMap, targets, dailyBriefing, healthMap, goal);
       let fullText = '';
 
       // Add a streaming placeholder

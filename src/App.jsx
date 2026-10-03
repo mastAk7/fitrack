@@ -5,10 +5,11 @@ import DietTab from './components/DietTab.jsx';
 import WorkoutTab from './components/WorkoutTab.jsx';
 import AnalyticsTab from './components/AnalyticsTab.jsx';
 import CoachTab from './components/CoachTab.jsx';
-import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth } from './engine/storage.js';
+import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, loadGoal } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
 import SyncSettings from './components/SyncSettings.jsx';
+import GoalModal from './components/GoalModal.jsx';
 import { getDailyBriefing } from './engine/context.js';
 
 const PUSH_DEBOUNCE_MS = 30_000; // push 30s after last change
@@ -23,6 +24,8 @@ export default function App() {
   const [dailyBriefing, setDailyBriefing] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [healthMap, setHealthMap] = useState({});
+  const [goal, setGoal] = useState(() => loadGoal());
+  const [showGoalModal, setShowGoalModal] = useState(false);
 
   const pushTimer = useRef(null);
   // Store latest maps in refs so beforeunload can access them without stale closure
@@ -107,7 +110,7 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
 
-  const targets = computeTargets(dietMap);
+  const targets = computeTargets(dietMap, goal);
 
   return (
     <div style={{
@@ -124,7 +127,16 @@ export default function App() {
         syncStatus={syncStatus}
         lastSync={lastSync}
         onSettingsOpen={() => setShowSettings(true)}
+        goal={goal}
+        onGoalOpen={() => setShowGoalModal(true)}
       />
+      {showGoalModal && (
+        <GoalModal
+          goal={goal}
+          setGoal={setGoal}
+          onClose={() => setShowGoalModal(false)}
+        />
+      )}
       {showSettings && (
         <SyncSettings
           onClose={() => setShowSettings(false)}
@@ -154,12 +166,16 @@ export default function App() {
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {activeTab === 'diet' && (
-          <DietTab dietMap={dietMap} setDietMap={setDietMap} targets={targets} healthMap={healthMap} setHealthMap={setHealthMap} />
+          <DietTab
+            dietMap={dietMap} setDietMap={setDietMap}
+            targets={targets} healthMap={healthMap} setHealthMap={setHealthMap}
+          />
         )}
         {activeTab === 'workout' && (
           <WorkoutTab
             workMap={workMap} setWorkMap={setWorkMap}
             planMods={planMods} setPlanMods={setPlanMods}
+            healthMap={healthMap}
           />
         )}
         {activeTab === 'analytics' && (
@@ -173,6 +189,7 @@ export default function App() {
             targets={targets}
             dailyBriefing={dailyBriefing}
             healthMap={healthMap}
+            goal={goal}
           />
         )}
       </div>

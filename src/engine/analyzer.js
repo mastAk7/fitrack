@@ -1,4 +1,5 @@
 import { callClaude } from './claude.js';
+import { parseMealLocal, extractMusclesLocal } from './localFoodParser.js';
 
 function rateEntry(protein_g, calories, dailyCal = 2000) {
   const threshold45 = dailyCal * 0.45;
@@ -43,20 +44,38 @@ knowledge for that specific dish. Do NOT flatten different dishes into a generic
 Quantities multiply linearly: 2 medium bowls = 2 × one medium bowl.`.trim();
 
 /**
- * Analyzes a meal from text. Always uses Gemini for accurate quantity parsing.
+ * Analyzes a meal from text. Tries local fast-path Indian parser first (0 tokens), falls back to LLM.
  */
 export async function analyzeMealText(text, dailyCalTarget = 2000) {
+  const local = parseMealLocal(text, dailyCalTarget);
+  if (local) return local;
   return analyzeMealWithGemini(text, null, dailyCalTarget);
 }
 
 /**
- * Batch-analyzes multiple text meals in a single Gemini call.
- * entries: [{ id, summary }]
- * Returns: [{ id, summary, protein_g, calories, rating, feedback, items }]
+ * Batch-analyzes multiple text meals. Evaluates recognizable Indian staples locally (0 tokens),
+ * and only bundles unrecognized meals into a single AI call.
  */
 export async function analyzeMealsBatch(entries, dailyCalTarget = 2000) {
+  const localResults = [];
+  const needRemote = [];
+
+  for (const e of entries) {
+    const local = parseMealLocal(e.summary || '', dailyCalTarget);
+    if (local) {
+      localResults.push({ id: e.id, ...local });
+    } else {
+      needRemote.push(e);
+    }
+  }
+
+  // If all meals were parsed locally, return immediately without calling any API!
+  if (needRemote.length === 0) {
+    return localResults;
+  }
+
   const threshold = Math.round(dailyCalTarget * 0.45);
-  const list = entries.map(e => JSON.stringify({ id: e.id, text: e.summary || '' })).join(',\n');
+  const list = needRemote.map(e => JSON.stringify({ id: e.id, text: e.summary || '' })).join(',\n');
   const prompt = `You are a precision nutrition analyzer for a 19yo male (78kg) cutting at ${dailyCalTarget} kcal/day. He describes meals using vessel sizes (small bowl, medium bowl, big bowl, small plate, big plate) and bread counts.
 
 ${FOOD_REF}
@@ -97,30 +116,50 @@ For each meal return exactly this shape (no extra keys):
 Rating: "good" if protein_g>=15 AND calories<=${threshold} | "low_protein" if protein_g<10 | "too_many_calories" if calories>${threshold} | else "ok".
 The sum of item calories and protein_g must equal the top-level totals.`;
 
-  const responseText = await callClaude({ max_tokens: 8192, messages: [{ role: 'user', content: prompt }] });
-  const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-
   try {
-    return JSON.parse(cleaned);
-  } catch {
-    // Partial response — extract complete objects via regex
-    const matches = [...cleaned.matchAll(/\{[^{}]*"id"\s*:\s*(\d+)[^{}]*"protein_g"\s*:\s*(\d+)[^{}]*\}/g)];
-    if (matches.length > 0) {
-      return matches.map(m => {
-        try { return JSON.parse(m[0]); } catch { return null; }
-      }).filter(Boolean);
+    const responseText = await callClaude({ max_tokens: 4096, messages: [{ role: 'user', content: prompt }] });
+    const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    let remoteResults = [];
+    try {
+      remoteResults = JSON.parse(cleaned);
+    } catch {
+      const matches = [...cleaned.matchAll(/\{[^{}]*"id"\s*:\s*(\d+)[^{}]*"protein_g"\s*:\s*(\d+)[^{}]*\}/g)];
+      if (matches.length > 0) {
+        remoteResults = matches.map(m => {
+          try { return JSON.parse(m[0]); } catch { return null; }
+        }).filter(Boolean);
+      }
     }
-    throw new Error('Could not parse batch meal response');
+    return [...localResults, ...remoteResults];
+  } catch (err) {
+    console.warn('Remote meal batch analysis error, returning local results:', err);
+    if (localResults.length > 0) return localResults;
+    throw err;
   }
 }
 
 /**
- * Batch-extracts muscles from multiple workouts in a single Gemini call.
- * workouts: [{ id, exercises[] }]
- * Returns: [{ id, muscles: [{ name, intensity }] }]
+ * Batch-extracts muscles from multiple workouts.
+ * Uses deterministic local exercise rules first, avoiding API calls for standard lifts.
  */
 export async function extractMusclesBatch(workouts) {
-  const list = workouts.map(w => JSON.stringify({
+  const localResults = [];
+  const needRemote = [];
+
+  for (const w of workouts) {
+    const local = extractMusclesLocal(w.exercises || []);
+    if (local && local.length > 0) {
+      localResults.push({ id: w.id, muscles: local });
+    } else {
+      needRemote.push(w);
+    }
+  }
+
+  if (needRemote.length === 0) {
+    return localResults;
+  }
+
+  const list = needRemote.map(w => JSON.stringify({
     id: w.id,
     exercises: w.exercises.filter(l => !l.trim().startsWith('//')).join(', '),
   })).join(',\n');
@@ -133,19 +172,24 @@ For each return: {"id":<id>,"muscles":[{"name":"Chest","intensity":4},...]}
 Use ONLY these names: Chest, Front Delts, Side Delts, Rear Delts, Traps, Upper Back, Lats, Lower Back, Biceps, Triceps, Forearms, Abs, Obliques, Glutes, Quads, Hamstrings, Calves
 Intensity 1-5 (1=very light, 5=very heavy). Only include muscles actually worked.`;
 
-  const responseText = await callClaude({ max_tokens: 8192, messages: [{ role: 'user', content: prompt }] });
-  const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-
   try {
-    return JSON.parse(cleaned);
-  } catch {
-    const matches = [...cleaned.matchAll(/\{"id"\s*:\s*(\d+)\s*,\s*"muscles"\s*:\s*(\[[^\]]*\])/g)];
-    if (matches.length > 0) {
-      return matches.map(m => {
-        try { return { id: Number(m[1]), muscles: JSON.parse(m[2]) }; } catch { return null; }
-      }).filter(Boolean);
+    const responseText = await callClaude({ max_tokens: 2048, messages: [{ role: 'user', content: prompt }] });
+    const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    let remoteResults = [];
+    try {
+      remoteResults = JSON.parse(cleaned);
+    } catch {
+      const matches = [...cleaned.matchAll(/\{"id"\s*:\s*(\d+)\s*,\s*"muscles"\s*:\s*(\[[^\]]*\])/g)];
+      if (matches.length > 0) {
+        remoteResults = matches.map(m => {
+          try { return { id: Number(m[1]), muscles: JSON.parse(m[2]) }; } catch { return null; }
+        }).filter(Boolean);
+      }
     }
-    throw new Error('Could not parse batch muscle response');
+    return [...localResults, ...remoteResults];
+  } catch (err) {
+    console.warn('Remote muscle extraction error, returning local extractions:', err);
+    return localResults;
   }
 }
 
