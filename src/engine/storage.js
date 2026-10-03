@@ -236,3 +236,32 @@ export function saveUserApiKeys(keys) {
     console.error('saveUserApiKeys error:', err);
   }
 }
+
+export function clearAllUserData() {
+  const keysToClear = [
+    DIET_KEY, WORK_KEY, PLAN_MODS_KEY, TOMBSTONES_KEY, HEALTH_KEY,
+    COACH_HISTORY_KEY, 'sc_diet', 'sc_diet2', 'sc_work', 'sc_work2',
+    'sc_last_sync'
+  ];
+  for (const k of keysToClear) {
+    try {
+      localStorage.removeItem(k);
+    } catch {}
+  }
+}
+
+const RESET_USER_FLAG = 'sc_history_cleared_v1';
+
+export function checkOneTimeReset() {
+  try {
+    if (!localStorage.getItem(RESET_USER_FLAG)) {
+      clearAllUserData();
+      localStorage.setItem(RESET_USER_FLAG, 'true');
+      return true;
+    }
+  } catch (err) {
+    console.error('checkOneTimeReset error:', err);
+  }
+  return false;
+}
+

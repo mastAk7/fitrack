@@ -17,20 +17,31 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
 }
 
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
   background-color: #0a0a0f;
   color: #e8e8ed;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 ::-webkit-scrollbar {
@@ -44,10 +55,24 @@ body {
   border-radius: 2px;
 }
 
-input, textarea, select {
-  font-family: 'DM Sans', sans-serif;
+button, a, input, textarea, select {
+  touch-action: manipulation;
+  font-family: inherit;
+}
+
+button:active {
+  transform: scale(0.98);
+  transition: transform 0.08s ease;
+}
+
+/* Prevent auto-zooming on focus in iOS Safari */
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
 }
 
 .tab-content {
-  padding-bottom: 80px;
+  padding-bottom: calc(85px + var(--sab));
 }
+

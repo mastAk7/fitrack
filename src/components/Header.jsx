@@ -24,9 +24,11 @@ export default function Header({ phase, week, syncStatus = 'idle', lastSync = nu
 
   return (
     <header style={{
-      background: '#0a0a0f',
+      background: 'rgba(10, 10, 15, 0.94)',
+      backdropFilter: 'blur(16px)',
+      WebkitBackdropFilter: 'blur(16px)',
       borderBottom: '1px solid #1e1e2a',
-      padding: '12px 16px',
+      padding: 'max(12px, env(safe-area-inset-top, 12px)) 16px 12px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',

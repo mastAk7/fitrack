@@ -3,7 +3,7 @@ import { loadUserApiKeys, saveUserApiKeys } from '../engine/storage.js';
 
 const GIST_ID_KEY = 'sc_gist_id';
 
-export default function SyncSettings({ onClose, onSyncNow }) {
+export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
   const envGistId = import.meta.env.VITE_GIST_ID || '';
   const localGistId = localStorage.getItem(GIST_ID_KEY) || '';
   const activeGistId = envGistId || localGistId;
@@ -12,6 +12,7 @@ export default function SyncSettings({ onClose, onSyncNow }) {
   const [input, setInput] = useState(activeGistId);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const [userKeys, setUserKeys] = useState(() => loadUserApiKeys());
   const [geminiKeyInput, setGeminiKeyInput] = useState(userKeys.geminiKey || '');
@@ -178,6 +179,55 @@ export default function SyncSettings({ onClose, onSyncNow }) {
                 color: '#e8e8ed', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >Sync Now</button>
+          )}
+        </div>
+
+        {/* Danger Zone: Wipe / Clear All History */}
+        <div style={{ marginTop: 22, borderTop: '1px solid #1e1e2a', paddingTop: 14 }}>
+          <div style={{ fontSize: 11, color: '#ff5252', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 4 }}>
+            Danger Zone
+          </div>
+          <div style={{ fontSize: 11, color: '#7a7a8a', marginBottom: 10 }}>
+            Wipe all logged meals, workouts, health metrics, and coach chat for a completely fresh start.
+          </div>
+          {confirmClear ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => {
+                  onClearAll?.();
+                  setConfirmClear(false);
+                  onClose();
+                }}
+                style={{
+                  flex: 1, background: '#ff5252', border: 'none',
+                  borderRadius: 8, padding: '9px', color: '#fff',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Yes, Wipe Everything
+              </button>
+              <button
+                onClick={() => setConfirmClear(false)}
+                style={{
+                  flex: 1, background: '#1e1e2a', border: '1px solid #2a2a3a',
+                  borderRadius: 8, padding: '9px', color: '#e8e8ed',
+                  fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmClear(true)}
+              style={{
+                width: '100%', background: '#ff525215', border: '1px solid #ff525240',
+                borderRadius: 8, padding: '9px', color: '#ff5252',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Clear All Logs & History
+            </button>
           )}
         </div>
       </div>

@@ -5,7 +5,7 @@ import DietTab from './components/DietTab.jsx';
 import WorkoutTab from './components/WorkoutTab.jsx';
 import AnalyticsTab from './components/AnalyticsTab.jsx';
 import CoachTab from './components/CoachTab.jsx';
-import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, loadGoal } from './engine/storage.js';
+import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, loadGoal, clearAllUserData, checkOneTimeReset } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
 import SyncSettings from './components/SyncSettings.jsx';
@@ -37,21 +37,48 @@ export default function App() {
   useEffect(() => { workRef.current = workMap; }, [workMap]);
   useEffect(() => { modsRef.current = planMods; }, [planMods]);
 
+  // ── Clear all data handler ─────────────────────────────────
+  const handleClearAll = useCallback(async () => {
+    clearAllUserData();
+    const emptyDiet = new Map();
+    const emptyWork = new Map();
+    const emptyMods = {};
+    const emptyHealth = {};
+    setDietMap(emptyDiet);
+    setWorkMap(emptyWork);
+    setPlanMods(emptyMods);
+    setHealthMap(emptyHealth);
+    setDailyBriefing('');
+    if (isGistConfigured()) {
+      setSyncStatus('syncing');
+      await pushGist(emptyDiet, emptyWork, emptyMods, new Set());
+      setSyncStatus('synced');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+    }
+  }, []);
+
   // ── Initial load ────────────────────────────────────────────
   useEffect(() => {
-    migrate();
-    let diet = loadDiet();
-    let work = loadWork();
-    let mods = loadPlanMods();
-    const health = loadHealth();
+    const wasReset = checkOneTimeReset();
+    if (!wasReset) {
+      migrate();
+    }
+    let diet = wasReset ? new Map() : loadDiet();
+    let work = wasReset ? new Map() : loadWork();
+    let mods = wasReset ? {} : loadPlanMods();
+    const health = wasReset ? {} : loadHealth();
 
     setDietMap(diet);
     setWorkMap(work);
     setPlanMods(mods);
     setHealthMap(health);
 
-    // Pull from gist and merge
-    if (isGistConfigured()) {
+    if (wasReset && isGistConfigured()) {
+      pushGist(new Map(), new Map(), {}, new Set()).catch(() => {});
+    }
+
+    // Pull from gist and merge (only if not freshly reset)
+    if (!wasReset && isGistConfigured()) {
       setSyncStatus('syncing');
       pullGist()
         .then(gistData => {
@@ -140,6 +167,7 @@ export default function App() {
       {showSettings && (
         <SyncSettings
           onClose={() => setShowSettings(false)}
+          onClearAll={handleClearAll}
           onSyncNow={() => {
             setSyncStatus('syncing');
             pullGist()
