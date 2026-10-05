@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { saveHealth } from '../engine/storage.js';
-import { isGoogleFitConnected, fetchGoogleFitDailySummary, mergeFitDataIntoHealthMap } from '../engine/googleFit.js';
+import { isGoogleFitConnected, connectGoogleFit, fetchGoogleFitDailySummary, mergeFitDataIntoHealthMap } from '../engine/googleFit.js';
 import { calculateStepCalories } from '../engine/activity.js';
 
 const SLEEP_TARGET = 8;
@@ -37,10 +37,13 @@ export default function HealthWidget({ date, healthMap, setHealthMap }) {
   }
 
   async function handleGoogleFitSync() {
-    if (!fitConnected || syncingFit) return;
+    if (syncingFit) return;
     setSyncingFit(true);
     setFitMsg('');
     try {
+      if (!isGoogleFitConnected()) {
+        await connectGoogleFit();
+      }
       const results = await fetchGoogleFitDailySummary(7);
       const updatedMap = mergeFitDataIntoHealthMap(healthMap, results);
       setHealthMap(updatedMap);
@@ -48,7 +51,7 @@ export default function HealthWidget({ date, healthMap, setHealthMap }) {
       setFitMsg('Synced ✓');
       setTimeout(() => setFitMsg(''), 2500);
     } catch (err) {
-      setFitMsg('Sync error');
+      setFitMsg('✕ Err');
       setTimeout(() => setFitMsg(''), 3000);
     } finally {
       setSyncingFit(false);
@@ -112,20 +115,20 @@ export default function HealthWidget({ date, healthMap, setHealthMap }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 11, color: '#7a7a8a', fontWeight: 600 }}>Steps</span>
-            {fitConnected && (
-              <button
-                onClick={handleGoogleFitSync}
-                disabled={syncingFit}
-                title="Sync from Google Fit"
-                style={{
-                  background: 'none', border: 'none', padding: 0,
-                  fontSize: 10, color: fitMsg ? '#00e676' : '#4a80f0',
-                  cursor: 'pointer', fontWeight: 600,
-                }}
-              >
-                {syncingFit ? '⟳' : fitMsg || '●Fit'}
-              </button>
-            )}
+            <button
+              onClick={handleGoogleFitSync}
+              disabled={syncingFit}
+              title={fitConnected ? 'Sync from Google Fit' : 'Connect Google Fit to sync steps'}
+              style={{
+                background: 'none', border: 'none', padding: '0 2px',
+                fontSize: 10,
+                color: fitConnected ? (fitMsg ? '#00e676' : '#4a80f0') : '#b388ff',
+                cursor: syncingFit ? 'default' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {syncingFit ? '⟳' : fitMsg || (fitConnected ? '●Fit' : '+Fit')}
+            </button>
           </div>
           <span style={{ fontSize: 12, fontWeight: 700, color: stepsColor }}>
             {stepsVal >= 1000 ? `${(stepsVal / 1000).toFixed(1)}k` : stepsVal}
