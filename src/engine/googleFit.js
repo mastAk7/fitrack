@@ -1,7 +1,9 @@
 /**
  * Google Fitness (Google Fit) Integration via Google Identity Services & Fitness REST API.
- * Pulls steps, running/walking distance, and active calories directly into Fitrack.
+ * Pulls steps, distance, speed, duration, heart points, and activities directly into Fitrack.
  */
+
+import { calculateActivityCalories } from './activity.js';
 
 const GOOGLE_FIT_CLIENT_ID_KEY = 'sc_google_fit_client_id';
 const GOOGLE_FIT_TOKEN_KEY = 'sc_google_fit_token';
@@ -13,6 +15,28 @@ const FIT_SCOPES = [
   'https://www.googleapis.com/auth/fitness.body.read',
   'https://www.googleapis.com/auth/fitness.location.read',
 ].join(' ');
+
+export const FIT_ACTIVITY_MAP = {
+  1:   { id: 'cycling', name: 'Cycling', icon: '🚴', isCardio: true, met: 7.5 },
+  7:   { id: 'walk',    name: 'Walking', icon: '🚶', isCardio: false, met: 3.5 },
+  8:   { id: 'run',     name: 'Running', icon: '🏃', isCardio: true, met: 9.8 },
+  9:   { id: 'aerobics', name: 'Aerobics', icon: '🔥', isCardio: true, met: 7.0 },
+  10:  { id: 'badminton', name: 'Badminton', icon: '🏸', isCardio: true, met: 5.5 },
+  14:  { id: 'calisthenics', name: 'Calisthenics', icon: '💪', isCardio: false, met: 6.0 },
+  15:  { id: 'cricket', name: 'Cricket', icon: '🏏', isCardio: true, met: 5.0 },
+  18:  { id: 'dancing', name: 'Dancing', icon: '💃', isCardio: true, met: 6.0 },
+  24:  { id: 'football', name: 'Football', icon: '⚽', isCardio: true, met: 7.0 },
+  32:  { id: 'hiit', name: 'Cardio / HIIT', icon: '⚡', isCardio: true, met: 8.5 },
+  35:  { id: 'hiking', name: 'Hiking', icon: '🥾', isCardio: true, met: 6.5 },
+  57:  { id: 'rowing', name: 'Rowing', icon: '🚣', isCardio: true, met: 7.0 },
+  80:  { id: 'strength', name: 'Strength Training', icon: '🏋️', isCardio: false, met: 5.0 },
+  82:  { id: 'swimming', name: 'Swimming', icon: '🏊', isCardio: true, met: 7.5 },
+  84:  { id: 'tennis', name: 'Tennis', icon: '🎾', isCardio: true, met: 7.0 },
+  87:  { id: 'treadmill', name: 'Treadmill Run', icon: '🏃', isCardio: true, met: 9.5 },
+  107: { id: 'volleyball', name: 'Volleyball', icon: '🏐', isCardio: true, met: 5.5 },
+  113: { id: 'crossfit', name: 'Crossfit', icon: '🏋️', isCardio: true, met: 8.0 },
+  114: { id: 'yoga', name: 'Yoga', icon: '🧘', isCardio: false, met: 3.0 },
+};
 
 export function getGoogleFitClientId() {
   return import.meta.env.VITE_GOOGLE_FIT_CLIENT_ID || localStorage.getItem(GOOGLE_FIT_CLIENT_ID_KEY) || '';
@@ -77,7 +101,7 @@ function loadGsiScript() {
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = (err) => reject(new Error('Failed to load Google Identity Services SDK'));
+    script.onerror = () => reject(new Error('Failed to load Google Identity Services SDK'));
     document.head.appendChild(script);
   });
 }
@@ -123,8 +147,8 @@ export async function connectGoogleFit(customClientId = null) {
 }
 
 /**
- * Queries Google Fit REST API for daily steps, distance, active calories, and runs
- * for the past `numDays` days.
+ * Queries Google Fit REST API for daily steps, distance, active calories, heart points,
+ * and activity segments for the past `numDays` days.
  */
 export async function fetchGoogleFitDailySummary(numDays = 7) {
   const token = getStoredToken();
@@ -133,45 +157,62 @@ export async function fetchGoogleFitDailySummary(numDays = 7) {
   }
 
   const now = new Date();
-  // End of today
   const endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
-  // Start of N days ago
   const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() - numDays + 1, 0, 0, 0, 0).getTime();
 
-  const body = {
-    aggregateBy: [
+  // Try querying comprehensive types first; fall back to core if heart_minutes fails
+  const aggregateLists = [
+    [
+      { dataTypeName: 'com.google.step_count.delta' },
+      { dataTypeName: 'com.google.distance.delta' },
+      { dataTypeName: 'com.google.calories.expended' },
+      { dataTypeName: 'com.google.heart_minutes' },
+      { dataTypeName: 'com.google.active_minutes' },
+      { dataTypeName: 'com.google.activity.segment' },
+    ],
+    [
       { dataTypeName: 'com.google.step_count.delta' },
       { dataTypeName: 'com.google.distance.delta' },
       { dataTypeName: 'com.google.calories.expended' },
       { dataTypeName: 'com.google.activity.segment' },
-    ],
-    bucketByTime: { durationMillis: 86400000 }, // 1 day buckets
-    startTimeMillis: startTime,
-    endTimeMillis: endTime,
-  };
+    ]
+  ];
 
-  const res = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  let res = null;
+  for (const aggregateBy of aggregateLists) {
+    const body = {
+      aggregateBy,
+      bucketByTime: { durationMillis: 86400000 }, // 1 day buckets
+      startTimeMillis: startTime,
+      endTimeMillis: endTime,
+    };
 
-  if (res.status === 401) {
-    disconnectGoogleFit();
-    throw new Error('Google Fit session expired. Please reconnect.');
+    res = await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 401) {
+      disconnectGoogleFit();
+      throw new Error('Google Fit session expired. Please reconnect in Settings.');
+    }
+
+    if (res.ok) {
+      break;
+    }
   }
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Google Fit API error (${res.status}): ${errText.slice(0, 100)}`);
+  if (!res || !res.ok) {
+    const errText = res ? await res.text() : 'No response';
+    throw new Error(`Google Fit API error: ${errText.slice(0, 100)}`);
   }
 
   const data = await res.json();
   const buckets = data.bucket || [];
-
   const results = {};
 
   for (const b of buckets) {
@@ -182,7 +223,9 @@ export async function fetchGoogleFitDailySummary(numDays = 7) {
     let steps = 0;
     let distanceMeters = 0;
     let calories = 0;
-    let runDistanceKm = 0;
+    let heartPoints = 0;
+    let moveMinutes = 0;
+    const activities = [];
 
     for (const dataset of b.dataset || []) {
       const type = dataset.dataSourceId || '';
@@ -194,24 +237,79 @@ export async function fetchGoogleFitDailySummary(numDays = 7) {
             distanceMeters += val.fpVal || 0;
           } else if (type.includes('calories')) {
             calories += val.fpVal || 0;
+          } else if (type.includes('heart_minutes')) {
+            heartPoints += val.fpVal || 0;
+          } else if (type.includes('active_minutes')) {
+            moveMinutes += val.intVal || 0;
           } else if (type.includes('activity.segment')) {
-            // Activity type 8 = running in Google Fit
-            if (val.intVal === 8) {
-              const segDurationMin = (parseInt(point.endTimeNanos, 10) - parseInt(point.startTimeNanos, 10)) / 6e10;
-              // Approximate run distance if not separately partitioned
-              runDistanceKm += Math.round((segDurationMin / 6) * 10) / 10;
+            const actCode = val.intVal;
+            // Ignore idle/vehicle/sleep codes
+            if (actCode !== 0 && actCode !== 3 && actCode !== 4 && actCode !== 72 && FIT_ACTIVITY_MAP[actCode]) {
+              const actInfo = FIT_ACTIVITY_MAP[actCode];
+              const pStart = parseInt(point.startTimeNanos, 10);
+              const pEnd = parseInt(point.endTimeNanos, 10);
+              const durMin = Math.max(1, Math.round((pEnd - pStart) / 6e10));
+              const timeStr = new Date(pStart / 1e6).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+              // Estimate distance for running/walking if not individually tagged
+              let distKm = 0;
+              if (actInfo.id === 'run') {
+                distKm = Math.round((durMin / 5.8) * 10) / 10;
+              } else if (actInfo.id === 'walk') {
+                distKm = Math.round((durMin / 12) * 10) / 10;
+              } else if (actInfo.id === 'cycling') {
+                distKm = Math.round((durMin / 3.2) * 10) / 10;
+              }
+
+              const actCals = calculateActivityCalories(actInfo.id, {
+                distance_km: distKm,
+                duration_min: durMin,
+                weight_kg: 78,
+              });
+
+              let speedKmh = 0;
+              let paceStr = '';
+              if (distKm > 0 && durMin > 0) {
+                speedKmh = Math.round((distKm / (durMin / 60)) * 10) / 10;
+                const paceDecimal = durMin / distKm;
+                const paceM = Math.floor(paceDecimal);
+                const paceS = Math.round((paceDecimal % 1) * 60);
+                paceStr = `${paceM}'${paceS.toString().padStart(2, '0')}" /km`;
+              }
+
+              activities.push({
+                id: pStart || Date.now(),
+                type: actInfo.id,
+                name: actInfo.name,
+                icon: actInfo.icon,
+                duration_min: durMin,
+                distance_km: distKm,
+                speed_kmh: speedKmh,
+                pace: paceStr,
+                calories: actCals,
+                time: timeStr,
+                fromGoogleFit: true,
+              });
             }
           }
         }
       }
     }
 
+    const totalDistKm = Math.round((distanceMeters / 1000) * 10) / 10;
+    // If active burn from Google Fit is available, use it; otherwise estimate from steps & activities
+    const actTotalCals = activities.reduce((sum, a) => sum + (a.calories || 0), 0);
+    const stepCals = Math.round(steps * 0.04);
+    const finalActiveCals = Math.max(Math.round(calories), actTotalCals + stepCals);
+
     results[dateStr] = {
       date: dateStr,
       steps: Math.round(steps),
-      distance_km: Math.round((distanceMeters / 1000) * 10) / 10,
-      active_cals: Math.round(calories),
-      run_km: runDistanceKm,
+      distance_km: totalDistKm,
+      active_cals: finalActiveCals,
+      heart_points: Math.round(heartPoints),
+      move_min: Math.round(moveMinutes),
+      activities,
     };
   }
 
@@ -220,40 +318,24 @@ export async function fetchGoogleFitDailySummary(numDays = 7) {
 
 /**
  * Merges freshly fetched Google Fit data into the application's healthMap.
+ * Everything for activity, steps, distance, active cals, heart points comes strictly from Fit!
  */
 export function mergeFitDataIntoHealthMap(healthMap, fitResults) {
   const newMap = { ...healthMap };
 
   for (const [date, fit] of Object.entries(fitResults)) {
-    const existing = newMap[date] || { sleep_h: 0, water: 0, activities: [] };
-    const prevSteps = existing.steps || 0;
-
-    // Use fit steps if higher than manual
-    const steps = Math.max(prevSteps, fit.steps || 0);
-    const active_cals = Math.max(existing.active_cals || 0, fit.active_cals || 0);
-
-    // If Google Fit detected running and no run activity is recorded yet:
-    let activities = [...(existing.activities || [])];
-    if (fit.run_km > 0 && !activities.some(a => a.type === 'run' && a.fromGoogleFit)) {
-      activities.push({
-        id: Date.now() + Math.random(),
-        type: 'run',
-        name: `Google Fit Run (${fit.run_km} km)`,
-        distance_km: fit.run_km,
-        duration_min: Math.round(fit.run_km * 6),
-        calories: Math.round(fit.run_km * 78 * 1.036),
-        fromGoogleFit: true,
-        time: 'Tracked',
-      });
-    }
+    const existing = newMap[date] || { sleep_h: 0, water: 0 };
 
     newMap[date] = {
       ...existing,
-      steps,
-      distance_km: Math.max(existing.distance_km || 0, fit.distance_km || 0),
-      active_cals,
-      activities,
-      googleFitSyncedAt: new Date().toISOString(),
+      steps: fit.steps || 0,
+      distance_km: fit.distance_km || 0,
+      active_cals: fit.active_cals || 0,
+      heart_points: fit.heart_points || 0,
+      move_min: fit.move_min || 0,
+      activities: fit.activities || [],
+      fit_synced: true,
+      fit_synced_at: new Date().toISOString(),
     };
   }
 
@@ -261,19 +343,15 @@ export function mergeFitDataIntoHealthMap(healthMap, fitResults) {
 }
 
 /**
- * Synchronizes Google Fit summary for a specific date or recent days.
- * Returns { updated: true, steps, active_cals, distance_km, run_km } or null.
+ * Synchronizes Google Fit summary for recent days.
  */
 export async function syncGoogleFitForDate(dateStr) {
   if (!isGoogleFitConnected()) return null;
-  const summary = await fetchGoogleFitDailySummary(3);
+  const summary = await fetchGoogleFitDailySummary(7);
   const dayData = summary[dateStr];
-  if (!dayData) return null;
   return {
     updated: true,
-    steps: dayData.steps,
-    distance_km: dayData.distance_km,
-    active_cals: dayData.active_cals,
-    run_km: dayData.run_km,
+    dayData,
+    allDays: summary,
   };
 }

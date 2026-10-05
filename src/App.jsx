@@ -8,7 +8,7 @@ import CoachTab from './components/CoachTab.jsx';
 import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, saveHealth, loadGoal, clearAllUserData, checkOneTimeReset } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
-import { isGoogleFitConnected, syncGoogleFitForDate } from './engine/googleFit.js';
+import { isGoogleFitConnected, fetchGoogleFitDailySummary, mergeFitDataIntoHealthMap } from './engine/googleFit.js';
 import SyncSettings from './components/SyncSettings.jsx';
 import GoalModal from './components/GoalModal.jsx';
 import { getDailyBriefing } from './engine/context.js';
@@ -162,43 +162,32 @@ export default function App() {
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
+    setSyncStatus('syncing');
     if (navigator?.vibrate) {
       try { navigator.vibrate(15); } catch {}
     }
 
     try {
-      // 1. If Google Fit is connected, sync steps & active burn for today
+      let currentHealth = healthRef.current;
+
+      // 1. If Google Fit is connected, sync all recent days (steps, distance, speed, time, heart points, activities)
       if (isGoogleFitConnected()) {
         try {
-          const fitResult = await syncGoogleFitForDate(todayStr());
-          if (fitResult?.updated) {
-            setHealthMap(prev => {
-              const updated = {
-                ...prev,
-                [todayStr()]: {
-                  ...(prev[todayStr()] || {}),
-                  steps: fitResult.steps,
-                  active_cals: fitResult.active_cals,
-                  fit_synced: true,
-                  fit_synced_at: new Date().toISOString(),
-                }
-              };
-              saveHealth(updated);
-              return updated;
-            });
-          }
+          const fitSummary = await fetchGoogleFitDailySummary(7);
+          currentHealth = mergeFitDataIntoHealthMap(healthRef.current, fitSummary);
+          saveHealth(currentHealth);
+          setHealthMap(currentHealth);
         } catch (fitErr) {
           console.warn('Google Fit refresh sync error:', fitErr);
         }
       }
 
-      // 2. Pull from gist if configured
+      // 2. Pull from gist if configured and merge
       if (isGistConfigured()) {
-        setSyncStatus('syncing');
         const gistData = await pullGist();
         if (gistData) {
           const localTombstones = loadTombstones();
-          const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, localTombstones, healthRef.current);
+          const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, localTombstones, currentHealth);
           saveDiet(merged.dietMap);
           saveWork(merged.workMap);
           savePlanMods(merged.planMods);
@@ -208,11 +197,16 @@ export default function App() {
           setWorkMap(merged.workMap);
           setPlanMods(merged.planMods);
           setHealthMap(merged.health);
+          currentHealth = merged.health;
         }
-        setSyncStatus('synced');
+
+        // Push back any fresh Google Fit & local updates to Gist
+        await pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones(), currentHealth).catch(() => {});
         setLastSync(new Date().toISOString());
-        setTimeout(() => setSyncStatus('idle'), 2000);
       }
+
+      setSyncStatus('synced');
+      setTimeout(() => setSyncStatus('idle'), 2500);
     } catch {
       setSyncStatus('error');
       setTimeout(() => setSyncStatus('idle'), 3000);

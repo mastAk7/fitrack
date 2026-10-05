@@ -20,39 +20,44 @@ function todayStr() { return localDateStr(); }
  * Builds a compressed, highly targeted system prompt injected into Coach calls.
  * Compresses historical logs into statistical vectors to conserve API tokens.
  */
-export function buildCoachContext(dietMap, workMap, targets, dailyBriefing = '', healthMap = {}, goal = DEFAULT_GOAL) {
+export function buildCoachContext(dietMap = new Map(), workMap = new Map(), targets = { pro: 140, cal: 2000 }, dailyBriefing = '', healthMap = {}, goal = DEFAULT_GOAL) {
   const today = todayStr();
   const activeGoal = goal || DEFAULT_GOAL;
+  const safeTargets = targets || { pro: 140, cal: 2000 };
+  const targetPro = safeTargets.pro || 140;
+  const targetCal = safeTargets.cal || 2000;
 
   // ── TODAY'S RUNWAY ──────────────────────────────────────────
-  const todayMeals = [...dietMap.values()].filter(e => e.date === today);
-  const todayPro = Math.round(todayMeals.reduce((s, e) => s + (e.protein_g || 0), 0) * 10) / 10;
-  const todayCal = Math.round(todayMeals.reduce((s, e) => s + (e.calories || 0), 0));
-  const remainPro = Math.max(0, Math.round((targets.pro - todayPro) * 10) / 10);
-  const remainCal = Math.max(0, Math.round(targets.cal - todayCal));
-  const proPercent = Math.round((todayPro / targets.pro) * 100);
-  const calPercent = Math.round((todayCal / targets.cal) * 100);
+  const allMeals = dietMap instanceof Map ? [...dietMap.values()] : Array.isArray(dietMap) ? dietMap : [];
+  const todayMeals = allMeals.filter(e => e && e.date === today);
+  const todayPro = Math.round(todayMeals.reduce((s, e) => s + (Number(e.protein_g) || 0), 0) * 10) / 10;
+  const todayCal = Math.round(todayMeals.reduce((s, e) => s + (Number(e.calories) || 0), 0));
+  const remainPro = Math.max(0, Math.round((targetPro - todayPro) * 10) / 10);
+  const remainCal = Math.max(0, Math.round(targetCal - todayCal));
+  const proPercent = Math.round((todayPro / targetPro) * 100);
+  const calPercent = Math.round((todayCal / targetCal) * 100);
 
   const todayMealsText = todayMeals.length > 0
-    ? todayMeals.map(e => `• ${e.time}: ${e.summary} (${e.protein_g}g P / ${e.calories} kcal) [${e.rating}]`).join('\n')
+    ? todayMeals.map(e => `• ${e.time || ''}: ${e.summary} (${e.protein_g}g P / ${e.calories} kcal) [${e.rating || 'ok'}]`).join('\n')
     : '• No meals logged yet today.';
 
-  const todayWorkouts = [...workMap.values()].filter(w => w.date === today);
+  const allWorkouts = workMap instanceof Map ? [...workMap.values()] : Array.isArray(workMap) ? workMap : [];
+  const todayWorkouts = allWorkouts.filter(w => w && w.date === today);
   const todayWorkText = todayWorkouts.length > 0
-    ? todayWorkouts.map(w => `• ${w.dayLabel}: ${w.completed} exercises completed${w.notes ? ` (${w.notes})` : ''}`).join('\n')
+    ? todayWorkouts.map(w => `• ${w.dayLabel || 'Workout'}: ${w.completed || 0} exercises completed${w.notes ? ` (${w.notes})` : ''}`).join('\n')
     : '• No workout logged yet.';
 
   // ── 14-DAY STATISTICAL SUMMARY (Compressed) ─────────────────
-  const agg14 = getDailyAggregates(dietMap, 14);
-  const workDates = new Set([...workMap.values()].map(w => w.date));
+  const agg14 = getDailyAggregates(dietMap instanceof Map ? dietMap : new Map(), 14);
+  const workDates = new Set(allWorkouts.map(w => w.date));
   const avgPro14 = agg14.length > 0 ? Math.round(agg14.reduce((s, d) => s + d.pro, 0) / agg14.length) : 0;
   const avgCal14 = agg14.length > 0 ? Math.round(agg14.reduce((s, d) => s + d.cal, 0) / agg14.length) : 0;
-  const proHits14 = agg14.filter(d => d.pro >= targets.pro).length;
+  const proHits14 = agg14.filter(d => d.pro >= targetPro).length;
   const gymDays14 = agg14.filter(d => workDates.has(d.date)).length;
 
   // ── RECENT WORKOUTS (Last 3 sessions only) ───────────────────
-  const recentWorkouts = [...workMap.values()]
-    .sort((a, b) => b.id - a.id)
+  const recentWorkouts = [...allWorkouts]
+    .sort((a, b) => (b.id || 0) - (a.id || 0))
     .slice(0, 3)
     .map(w => `• [${w.date}] ${w.dayLabel}: ${(w.exercises || []).slice(0, 4).join(', ')}`)
     .join('\n') || '• No recent sessions.';

@@ -82,22 +82,29 @@ export default function Header({ phase, week, syncStatus = 'idle', lastSync = nu
         }}>
           {phase}
         </div>
+        {sync.label && (
+          <span style={{ fontSize: 10, color: sync.color, fontWeight: 600 }}>
+            {sync.label}
+          </span>
+        )}
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          title="Refresh & sync data"
+          title="Refresh & sync data (Google Fit + Gist)"
           style={{
             background: 'none', border: 'none', cursor: isRefreshing ? 'default' : 'pointer',
-            color: isRefreshing ? '#00e676' : '#7a7a8a', fontSize: 18, padding: '4px', lineHeight: 1,
-            transition: 'color 0.2s',
+            color: isRefreshing ? '#00e676' : syncStatus === 'error' ? '#ff5252' : '#7a7a8a',
+            fontSize: 18, padding: '4px', lineHeight: 1,
+            transition: 'color 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <span style={{
-            display: 'inline-block',
-            transformOrigin: 'center',
-            transform: isRefreshing ? 'rotate(360deg)' : 'none',
-            transition: isRefreshing ? 'transform 0.8s ease' : 'none',
-          }}>↻</span>
+          <span
+            className={isRefreshing ? 'animate-spin' : ''}
+            style={{
+              display: 'inline-block',
+              transformOrigin: 'center',
+            }}
+          >↻</span>
         </button>
         <button
           onClick={onSettingsOpen}

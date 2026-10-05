@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Component } from 'react';
 import ChatBubble from './ChatBubble.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import { callClaudeStream } from '../engine/claude.js';
@@ -24,14 +24,14 @@ function todayStr() {
  * Returns { text (cleaned), workoutMod, mealLog }
  */
 function parseAssistantResponse(raw) {
-  let text = raw;
+  let text = String(raw || '');
   let workoutMod = null;
   let mealLog = null;
 
   const jsonBlockRegex = /```json\s*([\s\S]*?)```/g;
   let match;
 
-  while ((match = jsonBlockRegex.exec(raw)) !== null) {
+  while ((match = jsonBlockRegex.exec(text)) !== null) {
     try {
       const parsed = JSON.parse(match[1]);
       if (parsed.workout_mod) workoutMod = parsed.workout_mod;
@@ -46,8 +46,16 @@ function parseAssistantResponse(raw) {
   return { text, workoutMod, mealLog };
 }
 
-export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, planMods, setPlanMods, targets, dailyBriefing = '', healthMap = {}, goal = null }) {
-  const [messages, setMessages] = useState(() => loadCoachHistory());
+function CoachTabInner({ dietMap = new Map(), setDietMap, workMap = new Map(), setWorkMap, planMods = {}, setPlanMods, targets = { pro: 140, cal: 2000 }, dailyBriefing = '', healthMap = {}, goal = null }) {
+  const [messages, setMessages] = useState(() => {
+    try {
+      const history = loadCoachHistory();
+      if (!Array.isArray(history)) return [];
+      return history.filter(m => m && typeof m === 'object' && m.role && (m.displayText || m.content || m.streaming));
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState('');
   const [imageData, setImageData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -362,12 +370,6 @@ export default function CoachTab({ dietMap, setDietMap, workMap, setWorkMap, pla
         </div>
       )}
 
-      {/* Sync status */}
-      {syncStatus && (
-        <div style={{ padding: '6px 16px', fontSize: 11, color: '#b388ff', background: '#13131a', borderTop: '1px solid #1e1e2a' }}>
-          ⟳ {syncStatus}
-        </div>
-      )}
 
       {/* Input area */}
       <div style={{
@@ -451,4 +453,63 @@ function getMediaType(dataUri) {
 
 function stripPrefix(dataUri) {
   return (dataUri || '').replace(/^data:[^;]+;base64,/, '');
+}
+
+class CoachErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('CoachTab crash caught by ErrorBoundary:', error, info);
+  }
+
+  handleReset = () => {
+    try {
+      clearCoachHistory();
+    } catch {}
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          height: 'calc(100vh - 120px)', padding: 24, textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🤖</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#ff5252', marginBottom: 8 }}>
+            Coach Screen Recovered
+          </div>
+          <div style={{ fontSize: 12, color: '#7a7a8a', maxWidth: 300, lineHeight: 1.5, marginBottom: 20 }}>
+            {this.state.error?.message || 'A display issue occurred with previous messages.'}
+          </div>
+          <button
+            onClick={this.handleReset}
+            style={{
+              background: '#b388ff', color: '#0a0a0f', border: 'none',
+              borderRadius: 10, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            Start Fresh Chat
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function CoachTab(props) {
+  return (
+    <CoachErrorBoundary>
+      <CoachTabInner {...props} />
+    </CoachErrorBoundary>
+  );
 }

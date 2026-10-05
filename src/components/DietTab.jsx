@@ -3,7 +3,7 @@ import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import MealImproviser from './MealImproviser.jsx';
-import { analyzeMealImage, analyzeMealsBatch, reanalyzeMeal } from '../engine/analyzer.js';
+import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
 import { saveDiet, addTombstone } from '../engine/storage.js';
 import { getDynamicMaintenance } from '../engine/activity.js';
 import HealthWidget from './HealthWidget.jsx';
@@ -207,25 +207,6 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
     }
   }
 
-  async function handleReanalyzeSingle(entry) {
-    setError('');
-    const newMap = new Map(dietMap);
-    newMap.set(entry.id, { ...entry, analyzed: 'analyzing' });
-    setDietMap(newMap);
-    try {
-      const result = await reanalyzeMeal(entry, targets.cal);
-      const updated = new Map(dietMap);
-      updated.set(entry.id, { ...entry, ...result, analyzed: result.analyzed ?? true });
-      setDietMap(updated);
-      saveDiet(updated);
-    } catch (err) {
-      const updated = new Map(dietMap);
-      updated.set(entry.id, { ...entry, analyzed: 'failed', feedback: err.message || 'Retry failed', error: true });
-      setDietMap(updated);
-      saveDiet(updated);
-      setError(err.message || 'Re-analysis failed');
-    }
-  }
 
   function handleDelete(id) {
     addTombstone(id);
@@ -433,7 +414,6 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
               key={entry.id}
               entry={entry}
               onDelete={handleDelete}
-              onReanalyze={handleReanalyzeSingle}
             />
           ))
         )}

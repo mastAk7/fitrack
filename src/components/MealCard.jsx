@@ -104,25 +104,14 @@ function Chip({ label, value, unit, color }) {
   );
 }
 
-export default function MealCard({ entry, onDelete, onReanalyze }) {
+export default function MealCard({ entry, onDelete }) {
   const meta = RATING_META[entry.rating] || RATING_META.ok;
   const [confirming, setConfirming] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [retrying, setRetrying] = useState(false);
 
   const isPending = entry.analyzed === false || entry.analyzed === 'analyzing';
   const isFailed = entry.analyzed === 'failed' || entry.error || (entry.analyzed === true && entry.protein_g === 0 && (entry.feedback?.includes('Could not analyze') || entry.feedback?.includes('check API key')));
   const hasItems = Array.isArray(entry.items) && entry.items.length > 0;
-
-  async function handleRetryClick() {
-    if (retrying || !onReanalyze) return;
-    setRetrying(true);
-    try {
-      await onReanalyze(entry);
-    } finally {
-      setRetrying(false);
-    }
-  }
 
   return (
     <div style={{
@@ -177,25 +166,18 @@ export default function MealCard({ entry, onDelete, onReanalyze }) {
 
           <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {isFailed ? (
-              <button
-                onClick={handleRetryClick}
-                disabled={retrying}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: '#ff5252',
-                  background: '#ff525215',
-                  padding: '3px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #ff525240',
-                  cursor: retrying ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                {retrying ? 'Analyzing…' : '↻ Retry Analysis'}
-              </button>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#ff5252',
+                background: '#ff525215',
+                padding: '2px 8px',
+                borderRadius: 6,
+                border: '1px solid #ff525240',
+                letterSpacing: '0.3px',
+              }}>
+                ✕ Analysis failed
+              </span>
             ) : isPending ? (
               <span style={{ fontSize: 10, fontWeight: 600, color: '#ffab40', background: '#2a2215', padding: '2px 8px', borderRadius: 6, border: '1px solid #ffab4040', letterSpacing: '0.3px' }}>
                 {entry.analyzed === 'analyzing' ? 'Analyzing…' : 'Pending'}
@@ -217,26 +199,6 @@ export default function MealCard({ entry, onDelete, onReanalyze }) {
 
             {entry.feedback && (
               <span style={{ fontSize: 11, color: isFailed ? '#ff8a80' : '#7a7a8a', flex: 1 }}>{entry.feedback}</span>
-            )}
-
-            {/* Quick re-analyze link for analyzed meals */}
-            {!isPending && !isFailed && onReanalyze && (
-              <button
-                onClick={handleRetryClick}
-                disabled={retrying}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#5a5a7a',
-                  fontSize: 10,
-                  cursor: 'pointer',
-                  padding: '2px 4px',
-                  marginLeft: 'auto',
-                }}
-                title="Re-analyze this meal"
-              >
-                {retrying ? '…' : '↻'}
-              </button>
             )}
           </div>
 
