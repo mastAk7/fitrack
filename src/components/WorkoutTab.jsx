@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
-import { savePlanMods, saveWork, addTombstone } from '../engine/storage.js';
+import { savePlanMods, saveWork, addTombstone, saveHealth } from '../engine/storage.js';
 import { extractMusclesBatch } from '../engine/analyzer.js';
+import { ACTIVITY_TYPES, calculateActivityCalories } from '../engine/activity.js';
 import OverloadCard from './OverloadCard.jsx';
 import { getOverloadTargets, getMuscleConsistencyStreaks } from '../engine/overloadEngine.js';
 
@@ -40,7 +41,7 @@ Bicep curls 3 × 10 @ 8kg, drop to 6kg
 Wrist curls 3 × 20
 Plank 3 × 60s`;
 
-export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods, healthMap = {} }) {
+export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods, healthMap = {}, setHealthMap }) {
   const today = todayStr();
   const [selectedDate, setSelectedDate] = useState(today);
   const [log, setLog] = useState('');
@@ -49,6 +50,79 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
   const [analyzing, setAnalyzing] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Activity / Cardio logging state
+  const [activityType, setActivityType] = useState('run');
+  const [activityDist, setActivityDist] = useState('');
+  const [activityDur, setActivityDur] = useState('');
+  const [showActivityLogger, setShowActivityLogger] = useState(false);
+
+  const dayActivities = useMemo(() => {
+    return healthMap[selectedDate]?.activities || [];
+  }, [healthMap, selectedDate]);
+
+  const estimatedActCals = useMemo(() => {
+    return calculateActivityCalories(activityType, {
+      distance_km: activityDist,
+      duration_min: activityDur,
+      weight_kg: 78,
+    });
+  }, [activityType, activityDist, activityDur]);
+
+  function handleSaveActivity() {
+    if (!estimatedActCals && !activityDist && !activityDur) return;
+    const actTypeObj = ACTIVITY_TYPES.find(a => a.id === activityType) || ACTIVITY_TYPES[0];
+    const newAct = {
+      id: Date.now(),
+      type: activityType,
+      name: actTypeObj.name,
+      icon: actTypeObj.icon,
+      distance_km: parseFloat(activityDist) || 0,
+      duration_min: parseFloat(activityDur) || 0,
+      calories: estimatedActCals,
+      time: new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }),
+    };
+
+    const currentHealth = healthMap[selectedDate] || { sleep_h: 0, water: 0, steps: 0, activities: [] };
+    const currentActs = currentHealth.activities || [];
+    const updatedActs = [...currentActs, newAct];
+    const stepCals = Math.round((currentHealth.steps || 0) * 0.04);
+    const totalActCals = updatedActs.reduce((s, a) => s + (a.calories || 0), 0) + stepCals;
+
+    const newHealthMap = {
+      ...healthMap,
+      [selectedDate]: {
+        ...currentHealth,
+        activities: updatedActs,
+        active_cals: totalActCals,
+      },
+    };
+
+    setHealthMap?.(newHealthMap);
+    saveHealth(newHealthMap);
+
+    setActivityDist('');
+    setActivityDur('');
+  }
+
+  function handleDeleteActivity(actId) {
+    const currentHealth = healthMap[selectedDate] || { activities: [] };
+    const updatedActs = (currentHealth.activities || []).filter(a => a.id !== actId);
+    const stepCals = Math.round((currentHealth.steps || 0) * 0.04);
+    const totalActCals = updatedActs.reduce((s, a) => s + (a.calories || 0), 0) + stepCals;
+
+    const newHealthMap = {
+      ...healthMap,
+      [selectedDate]: {
+        ...currentHealth,
+        activities: updatedActs,
+        active_cals: totalActCals,
+      },
+    };
+
+    setHealthMap?.(newHealthMap);
+    saveHealth(newHealthMap);
+  }
 
   const planIdx = useMemo(() => dateToplanIndex(selectedDate), [selectedDate]);
   const plan = TRAINING_PLAN[planIdx];
@@ -311,6 +385,149 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
             </button>
           </div>
         )}
+      </div>
+
+      {/* Activity & Cardio Logging (Runs, Walks, Sports) */}
+      <div style={{ padding: '0 16px 14px' }}>
+        <div style={{
+          background: '#13131a',
+          border: '1px solid #1e1e2a',
+          borderRadius: 14,
+          padding: 14,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>🏃</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e8ed' }}>Cardio, Runs & Activities</div>
+                <div style={{ fontSize: 10, color: '#7a7a8a' }}>Boosts today's maintenance calories dynamically</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowActivityLogger(s => !s)}
+              style={{
+                background: showActivityLogger ? '#1a1a2e' : '#1e1e2a',
+                border: `1px solid ${showActivityLogger ? '#b388ff50' : '#2a2a3a'}`,
+                borderRadius: 8, padding: '4px 10px',
+                color: showActivityLogger ? '#b388ff' : '#e8e8ed',
+                fontSize: 11, cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              {showActivityLogger ? 'Close' : '+ Log Activity'}
+            </button>
+          </div>
+
+          {/* Form */}
+          {showActivityLogger && (
+            <div style={{ marginTop: 12, borderTop: '1px solid #1e1e2a', paddingTop: 12 }}>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 10 }}>
+                {ACTIVITY_TYPES.map(act => (
+                  <button
+                    key={act.id}
+                    onClick={() => setActivityType(act.id)}
+                    style={{
+                      background: activityType === act.id ? '#1f1b2e' : '#0d0d14',
+                      border: `1px solid ${activityType === act.id ? '#b388ff' : '#1e1e2a'}`,
+                      borderRadius: 8, padding: '5px 10px',
+                      color: activityType === act.id ? '#b388ff' : '#7a7a8a',
+                      fontSize: 11, cursor: 'pointer', fontWeight: 500, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', gap: 4,
+                    }}
+                  >
+                    <span>{act.icon}</span>
+                    <span>{act.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                {(activityType === 'run' || activityType === 'walk' || activityType === 'cycling' || activityType === 'swimming') && (
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, color: '#7a7a8a', marginBottom: 4 }}>Distance (km)</div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g. 5.0"
+                      value={activityDist}
+                      onChange={e => setActivityDist(e.target.value)}
+                      style={{
+                        width: '100%', background: '#0d0d14', border: '1px solid #1e1e2a',
+                        borderRadius: 8, padding: '7px 10px', color: '#e8e8ed', fontSize: 12, outline: 'none',
+                      }}
+                    />
+                  </div>
+                )}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: '#7a7a8a', marginBottom: 4 }}>Duration (mins)</div>
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="e.g. 30"
+                    value={activityDur}
+                    onChange={e => setActivityDur(e.target.value)}
+                    style={{
+                      width: '100%', background: '#0d0d14', border: '1px solid #1e1e2a',
+                      borderRadius: 8, padding: '7px 10px', color: '#e8e8ed', fontSize: 12, outline: 'none',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                <span style={{ fontSize: 12, color: '#ffab40', fontWeight: 600 }}>
+                  {estimatedActCals > 0 ? `🔥 ~${estimatedActCals} kcal burned` : 'Enter distance or minutes'}
+                </span>
+                <button
+                  onClick={handleSaveActivity}
+                  disabled={!estimatedActCals}
+                  style={{
+                    background: estimatedActCals ? '#00e676' : '#1e1e2a',
+                    color: estimatedActCals ? '#0a0a0f' : '#4a4a5a',
+                    border: 'none', borderRadius: 8, padding: '6px 14px',
+                    fontSize: 12, fontWeight: 700, cursor: estimatedActCals ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  Log & Boost Maintenance
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* List of today's activities */}
+          {dayActivities.length > 0 && (
+            <div style={{ marginTop: 10, borderTop: '1px solid #1e1e2a', paddingTop: 10 }}>
+              {dayActivities.map(act => (
+                <div key={act.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: '#0d0d14', border: '1px solid #1e1e2a', borderRadius: 8,
+                  padding: '7px 10px', marginBottom: 6,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 15 }}>{act.icon || '🔥'}</span>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#e8e8ed', fontWeight: 500 }}>
+                        {act.name}
+                        {act.distance_km > 0 ? ` · ${act.distance_km} km` : ''}
+                        {act.duration_min > 0 ? ` (${act.duration_min} min)` : ''}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#7a7a8a' }}>{act.time}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#00e676', fontWeight: 700 }}>
+                      +{act.calories} kcal
+                    </span>
+                    <button
+                      onClick={() => handleDeleteActivity(act.id)}
+                      style={{ background: 'none', border: 'none', color: '#4a4a5a', cursor: 'pointer', fontSize: 14 }}
+                      title="Delete activity"
+                    >×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Logged sessions for this date */}

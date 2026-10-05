@@ -5,14 +5,20 @@ import DietTab from './components/DietTab.jsx';
 import WorkoutTab from './components/WorkoutTab.jsx';
 import AnalyticsTab from './components/AnalyticsTab.jsx';
 import CoachTab from './components/CoachTab.jsx';
-import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, loadGoal, clearAllUserData, checkOneTimeReset } from './engine/storage.js';
+import { migrate, loadDiet, loadWork, loadPlanMods, saveDiet, saveWork, savePlanMods, loadTombstones, saveTombstones, loadHealth, saveHealth, loadGoal, clearAllUserData, checkOneTimeReset } from './engine/storage.js';
 import { computeTargets } from './engine/adaptive.js';
 import { pullGist, pushGist, mergeGistData, isGistConfigured, getLastSyncTime } from './engine/gistSync.js';
+import { isGoogleFitConnected, syncGoogleFitForDate } from './engine/googleFit.js';
 import SyncSettings from './components/SyncSettings.jsx';
 import GoalModal from './components/GoalModal.jsx';
 import { getDailyBriefing } from './engine/context.js';
 
 const PUSH_DEBOUNCE_MS = 30_000; // push 30s after last change
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('diet');
@@ -26,17 +32,21 @@ export default function App() {
   const [healthMap, setHealthMap] = useState({});
   const [goal, setGoal] = useState(() => loadGoal());
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const pushTimer = useRef(null);
   // Store latest maps in refs so beforeunload can access them without stale closure
   const dietRef = useRef(dietMap);
   const workRef = useRef(workMap);
   const modsRef = useRef(planMods);
+  const healthRef = useRef(healthMap);
 
   useEffect(() => { dietRef.current = dietMap; }, [dietMap]);
   useEffect(() => { workRef.current = workMap; }, [workMap]);
   useEffect(() => { modsRef.current = planMods; }, [planMods]);
+  useEffect(() => { healthRef.current = healthMap; }, [healthMap]);
 
+  // ── Clear all data handler ─────────────────────────────────
   // ── Clear all data handler ─────────────────────────────────
   const handleClearAll = useCallback(async () => {
     clearAllUserData();
@@ -51,7 +61,7 @@ export default function App() {
     setDailyBriefing('');
     if (isGistConfigured()) {
       setSyncStatus('syncing');
-      await pushGist(emptyDiet, emptyWork, emptyMods, new Set());
+      await pushGist(emptyDiet, emptyWork, emptyMods, new Set(), emptyHealth);
       setSyncStatus('synced');
       setTimeout(() => setSyncStatus('idle'), 2000);
     }
@@ -66,7 +76,7 @@ export default function App() {
     let diet = wasReset ? new Map() : loadDiet();
     let work = wasReset ? new Map() : loadWork();
     let mods = wasReset ? {} : loadPlanMods();
-    const health = wasReset ? {} : loadHealth();
+    let health = wasReset ? {} : loadHealth();
 
     setDietMap(diet);
     setWorkMap(work);
@@ -74,7 +84,7 @@ export default function App() {
     setHealthMap(health);
 
     if (wasReset && isGistConfigured()) {
-      pushGist(new Map(), new Map(), {}, new Set()).catch(() => {});
+      pushGist(new Map(), new Map(), {}, new Set(), {}).catch(() => {});
     }
 
     // Pull from gist and merge (only if not freshly reset)
@@ -84,17 +94,20 @@ export default function App() {
         .then(gistData => {
           if (gistData) {
             const localTombstones = loadTombstones();
-            const merged = mergeGistData(diet, work, mods, gistData, localTombstones);
+            const merged = mergeGistData(diet, work, mods, gistData, localTombstones, health);
             saveDiet(merged.dietMap);
             saveWork(merged.workMap);
             savePlanMods(merged.planMods);
+            saveHealth(merged.health);
             saveTombstones(merged.tombstones);
             setDietMap(merged.dietMap);
             setWorkMap(merged.workMap);
             setPlanMods(merged.planMods);
+            setHealthMap(merged.health);
             diet = merged.dietMap;
             work = merged.workMap;
             mods = merged.planMods;
+            health = merged.health;
           }
           setSyncStatus('synced');
           setLastSync(getLastSyncTime() || new Date().toISOString());
@@ -117,25 +130,107 @@ export default function App() {
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(async () => {
       setSyncStatus('syncing');
-      const ok = await pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones());
+      const ok = await pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones(), healthRef.current);
       setSyncStatus(ok ? 'synced' : 'error');
       if (ok) setLastSync(new Date().toISOString());
       setTimeout(() => setSyncStatus('idle'), ok ? 2500 : 4000);
     }, PUSH_DEBOUNCE_MS);
   }, []);
 
-  // Trigger push whenever data changes
-  useEffect(() => { schedulePush(); }, [dietMap, workMap, planMods, schedulePush]);
+  const isInitialized = useRef(false);
+
+  // Trigger push only when data changes after initial load
+  useEffect(() => {
+    if (!isInitialized.current) {
+      isInitialized.current = true;
+      return;
+    }
+    schedulePush();
+  }, [dietMap, workMap, planMods, healthMap, schedulePush]);
 
   // Push on tab close
   useEffect(() => {
     function onUnload() {
       if (!isGistConfigured()) return;
-      pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones()).catch(() => {});
+      pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones(), healthRef.current).catch(() => {});
     }
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
+
+  // ── Manual / Pull-to-refresh handler ─────────────────────────
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    if (navigator?.vibrate) {
+      try { navigator.vibrate(15); } catch {}
+    }
+
+    try {
+      // 1. If Google Fit is connected, sync steps & active burn for today
+      if (isGoogleFitConnected()) {
+        try {
+          const fitResult = await syncGoogleFitForDate(todayStr());
+          if (fitResult?.updated) {
+            setHealthMap(prev => {
+              const updated = {
+                ...prev,
+                [todayStr()]: {
+                  ...(prev[todayStr()] || {}),
+                  steps: fitResult.steps,
+                  active_cals: fitResult.active_cals,
+                  fit_synced: true,
+                  fit_synced_at: new Date().toISOString(),
+                }
+              };
+              saveHealth(updated);
+              return updated;
+            });
+          }
+        } catch (fitErr) {
+          console.warn('Google Fit refresh sync error:', fitErr);
+        }
+      }
+
+      // 2. Pull from gist if configured
+      if (isGistConfigured()) {
+        setSyncStatus('syncing');
+        const gistData = await pullGist();
+        if (gistData) {
+          const localTombstones = loadTombstones();
+          const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, localTombstones, healthRef.current);
+          saveDiet(merged.dietMap);
+          saveWork(merged.workMap);
+          savePlanMods(merged.planMods);
+          saveHealth(merged.health);
+          saveTombstones(merged.tombstones);
+          setDietMap(merged.dietMap);
+          setWorkMap(merged.workMap);
+          setPlanMods(merged.planMods);
+          setHealthMap(merged.health);
+        }
+        setSyncStatus('synced');
+        setLastSync(new Date().toISOString());
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      }
+    } catch {
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 700);
+    }
+  }, [isRefreshing]);
+
+  // ── Refresh on returning to foreground (Android PWA resume) ──
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === 'visible') {
+        handleRefresh();
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [handleRefresh]);
 
   const targets = computeTargets(dietMap, goal);
 
@@ -156,6 +251,8 @@ export default function App() {
         onSettingsOpen={() => setShowSettings(true)}
         goal={goal}
         onGoalOpen={() => setShowGoalModal(true)}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
       />
       {showGoalModal && (
         <GoalModal
@@ -173,11 +270,11 @@ export default function App() {
             pullGist()
               .then(gistData => {
                 if (gistData) {
-                  const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, loadTombstones());
-                  saveDiet(merged.dietMap); saveWork(merged.workMap); savePlanMods(merged.planMods); saveTombstones(merged.tombstones);
-                  setDietMap(merged.dietMap); setWorkMap(merged.workMap); setPlanMods(merged.planMods);
+                  const merged = mergeGistData(dietRef.current, workRef.current, modsRef.current, gistData, loadTombstones(), healthRef.current);
+                  saveDiet(merged.dietMap); saveWork(merged.workMap); savePlanMods(merged.planMods); saveHealth(merged.health); saveTombstones(merged.tombstones);
+                  setDietMap(merged.dietMap); setWorkMap(merged.workMap); setPlanMods(merged.planMods); setHealthMap(merged.health);
                 }
-                return pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones());
+                return pushGist(dietRef.current, workRef.current, modsRef.current, loadTombstones(), healthRef.current);
               })
               .then(ok => {
                 setSyncStatus(ok ? 'synced' : 'error');
@@ -203,7 +300,7 @@ export default function App() {
           <WorkoutTab
             workMap={workMap} setWorkMap={setWorkMap}
             planMods={planMods} setPlanMods={setPlanMods}
-            healthMap={healthMap}
+            healthMap={healthMap} setHealthMap={setHealthMap}
           />
         )}
         {activeTab === 'analytics' && (

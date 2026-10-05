@@ -37,9 +37,10 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
 
   const hitRate = useMemo(() => {
     if (dailyAgg.length === 0) return 0;
-    const hits = dailyAgg.filter(d => d.pro >= 130).length;
+    const targetPro = targets.pro || 130;
+    const hits = dailyAgg.filter(d => d.pro >= targetPro).length;
     return Math.round((hits / dailyAgg.length) * 100);
-  }, [dailyAgg]);
+  }, [dailyAgg, targets]);
 
   // Workout sessions last 14 days
   const workSessions = useMemo(() => {
@@ -50,7 +51,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
   }, [workMap]);
 
   // Protein streak
-  const proStreak = useMemo(() => getProteinStreak(dietMap), [dietMap]);
+  const proStreak = useMemo(() => getProteinStreak(dietMap, targets.pro || 130), [dietMap, targets]);
 
   // Chart data
   const chartData = useMemo(() => {
@@ -98,7 +99,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
     let pro = 0; let cal = 0; let meals = 0;
     for (const e of dietMap.values()) {
       if (e.date === todayStr) {
-        pro += e.protein || 0;
+        pro += (e.protein_g ?? e.protein ?? 0);
         cal += e.calories || 0;
         meals++;
       }
@@ -124,9 +125,11 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
       const h = healthMap[ds] || {};
       const sleep_h = h.sleep_h || 0;
       const water = h.water || 0;
+      const steps = h.steps || 0;
+      const active_cals = h.active_cals || 0;
       const hasWorkout = workDatesSet.has(ds);
 
-      const hasActivity = agg.meals > 0 || hasWorkout || sleep_h > 0 || water > 0;
+      const hasActivity = agg.meals > 0 || hasWorkout || sleep_h > 0 || water > 0 || steps > 0 || active_cals > 0;
       const evalResult = hasActivity
         ? calculateDailyScore(agg, targets, hasWorkout, h)
         : null;
@@ -266,7 +269,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
           label="Avg Protein / day"
           value={avgPro}
           unit="g"
-          color={avgPro >= 130 ? '#00e676' : '#ff5252'}
+          color={avgPro >= targets.pro ? '#00e676' : '#ff5252'}
           sub="last 14 logged days"
         />
         <StatCard
@@ -282,7 +285,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
           value={hitRate}
           unit="%"
           color="#00e676"
-          sub="days ≥ 130g protein"
+          sub={`days ≥ ${targets.pro}g protein`}
         />
         <StatCard
           label="Workout Sessions"
@@ -418,7 +421,7 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
         </div>
       )}
 
-      {/* Streaks */}
+      {/* Streaks & Performance */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <div style={{
           flex: 1, background: '#13131a', border: '1px solid #1e1e2a',
@@ -426,15 +429,17 @@ export default function AnalyticsTab({ dietMap, workMap, targets, healthMap = {}
         }}>
           <div style={{ fontSize: 28, fontWeight: 700, color: '#00e676' }}>{proStreak}</div>
           <div style={{ fontSize: 11, color: '#7a7a8a', marginTop: 4 }}>Protein streak</div>
-          <div style={{ fontSize: 10, color: '#4a4a5a' }}>days ≥ 130g</div>
+          <div style={{ fontSize: 10, color: '#4a4a5a' }}>days ≥ {targets.pro}g</div>
         </div>
         <div style={{
           flex: 1, background: '#13131a', border: '1px solid #1e1e2a',
           borderRadius: 14, padding: '14px 16px', textAlign: 'center',
         }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#b388ff' }}>{workSessions}</div>
-          <div style={{ fontSize: 11, color: '#7a7a8a', marginTop: 4 }}>Workout sessions</div>
-          <div style={{ fontSize: 10, color: '#4a4a5a' }}>last 14 days</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: avgScore !== null ? scoreColor(avgScore) : '#b388ff' }}>
+            {avgScore !== null ? `${avgScore}%` : '—'}
+          </div>
+          <div style={{ fontSize: 11, color: '#7a7a8a', marginTop: 4 }}>Avg Recomp Score</div>
+          <div style={{ fontSize: 10, color: '#4a4a5a' }}>14-day performance</div>
         </div>
       </div>
 

@@ -26,7 +26,9 @@ export function calculateDailyScore(dayAgg, targets, hasWorkout, health = {}, ha
   // 2. Calorie Deficit Accuracy (25 max points)
   let calPoints = 0;
   if (cal > 0) {
-    const diff = cal - targets.cal;
+    const activeBurn = Number(health?.active_cals) || 0;
+    const effectiveTarget = (targets.cal || 2000) + activeBurn;
+    const diff = cal - effectiveTarget;
     if (diff <= 50 && diff >= -150) {
       calPoints = 25; // sweet spot
     } else if (diff <= 150 && diff > 50) {

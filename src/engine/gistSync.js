@@ -76,15 +76,16 @@ export async function pullGist() {
 /**
  * Pushes current state to gist. Returns true on success.
  */
-export async function pushGist(dietMap, workMap, planMods, tombstones = new Set()) {
+export async function pushGist(dietMap, workMap, planMods, tombstones = new Set(), healthMap = {}) {
   if (!getToken()) return false;
   try {
     const id = await ensureGistId();
     const payload = {
-      version: 3,
+      version: 4,
       diet: [...dietMap.values()],
       work: [...workMap.values()],
       planMods,
+      health: healthMap || {},
       deletedIds: [...tombstones],
       lastSync: new Date().toISOString(),
     };
@@ -106,9 +107,9 @@ export async function pushGist(dietMap, workMap, planMods, tombstones = new Set(
 /**
  * Merges gist data into existing Maps. Union by id — local wins on conflict.
  * Deleted IDs (tombstones) are excluded and the merged tombstone set is returned.
- * Returns { dietMap, workMap, planMods, tombstones }
+ * Returns { dietMap, workMap, planMods, tombstones, health }
  */
-export function mergeGistData(localDietMap, localWorkMap, localPlanMods, gistData, localTombstones = new Set()) {
+export function mergeGistData(localDietMap, localWorkMap, localPlanMods, gistData, localTombstones = new Set(), localHealth = {}) {
   // Union tombstones from both sides
   const tombstones = new Set([...localTombstones, ...(gistData.deletedIds || [])]);
 
@@ -130,6 +131,7 @@ export function mergeGistData(localDietMap, localWorkMap, localPlanMods, gistDat
   }
 
   const planMods = { ...(gistData.planMods || {}), ...localPlanMods };
+  const health = { ...(gistData.health || {}), ...localHealth };
 
-  return { dietMap, workMap, planMods, tombstones };
+  return { dietMap, workMap, planMods, tombstones, health };
 }

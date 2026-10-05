@@ -5,15 +5,17 @@ import { loadUserApiKeys } from './storage.js';
 
 const GEMINI_TEXT_MODELS = [
   'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
+  'gemini-flash-latest',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
 ];
 
 const GROQ_MODELS = [
   'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
 ];
+
+const FETCH_TIMEOUT_MS = 18_000; // 18s timeout per attempt so mobile doesn't hang
 
 function getGeminiKeys() {
   const keys = [];
@@ -80,65 +82,76 @@ function buildGeminiBody(messages, system, max_tokens) {
   return body;
 }
 
-function buildGeminiAttempts(keys) {
-  const attempts = [];
-  for (const key of keys) {
-    for (const model of GEMINI_TEXT_MODELS) {
-      attempts.push({ key, model });
-    }
-  }
-  return attempts;
-}
-
 /**
  * Single-shot call with automatic fallback across Gemini and Groq
  */
-export async function callClaude({ messages, system, max_tokens = 1024 }) {
+export async function callClaude({ messages, system, max_tokens = 2048 }) {
   const geminiKeys = getGeminiKeys();
   const groqKeys = getGroqKeys();
 
   let lastErr;
 
-  // 1. Try Gemini rotation
+  // 1. Try Gemini rotation (Keys × Models)
   if (geminiKeys.length > 0) {
-    const attempts = buildGeminiAttempts(geminiKeys);
-    for (const { key, model } of attempts) {
-      try {
-        const res = await fetch(geminiApiUrl(key, model, false), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildGeminiBody(messages, system, max_tokens)),
-        });
+    for (const key of geminiKeys) {
+      let skipKey = false;
+      for (const model of GEMINI_TEXT_MODELS) {
+        if (skipKey) break;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        try {
+          const res = await fetch(geminiApiUrl(key, model, false), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildGeminiBody(messages, system, max_tokens)),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
 
-        if (res.status === 429) {
-          lastErr = new Error(`Quota exhausted: ${model}`);
-          continue;
-        }
-
-        if (!res.ok) {
-          const errText = await res.text();
-          if (res.status === 404) {
-            lastErr = new Error(`Model not found: ${model}`);
+          if (res.status === 429) {
+            lastErr = new Error(`Quota exhausted on ${model}`);
             continue;
           }
-          if (res.status === 400) {
-            lastErr = new Error(`Bad request (${model}): ${errText.slice(0, 200)}`);
+
+          if (res.status === 503) {
+            // High demand on model, try next model
+            lastErr = new Error(`Model ${model} experiencing high demand (503)`);
             continue;
           }
+
           if (res.status === 401 || res.status === 403) {
-            lastErr = new Error(`Auth error on key: ${errText.slice(0, 200)}`);
-            continue; // try next key
+            const errText = await res.text();
+            lastErr = new Error(`Auth/denied error on key: ${errText.slice(0, 150)}`);
+            skipKey = true; // Key is invalid or denied, skip to NEXT key!
+            break;
           }
-          lastErr = new Error(`API error ${res.status} (${model})`);
-          continue;
-        }
 
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return text;
-        lastErr = new Error(`Empty response from ${model}`);
-      } catch (err) {
-        lastErr = err;
+          if (!res.ok) {
+            const errText = await res.text();
+            if (res.status === 404) {
+              lastErr = new Error(`Model not found: ${model}`);
+              continue;
+            }
+            if (res.status === 400) {
+              lastErr = new Error(`Bad request (${model}): ${errText.slice(0, 200)}`);
+              continue;
+            }
+            lastErr = new Error(`API error ${res.status} (${model})`);
+            continue;
+          }
+
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) return text;
+          lastErr = new Error(`Empty response from ${model}`);
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (err.name === 'AbortError') {
+            lastErr = new Error(`Request timed out for ${model}`);
+          } else {
+            lastErr = err;
+          }
+        }
       }
     }
   }
@@ -204,59 +217,72 @@ export async function callClaudeStream({ messages, system, max_tokens = 1024, on
 
   // 1. Try Gemini streaming
   if (geminiKeys.length > 0) {
-    const attempts = buildGeminiAttempts(geminiKeys);
-    for (const { key, model } of attempts) {
-      try {
-        const res = await fetch(geminiApiUrl(key, model, true), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildGeminiBody(messages, system, max_tokens)),
-        });
+    for (const key of geminiKeys) {
+      let skipKey = false;
+      for (const model of GEMINI_TEXT_MODELS) {
+        if (skipKey) break;
+        try {
+          const res = await fetch(geminiApiUrl(key, model, true), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildGeminiBody(messages, system, max_tokens)),
+          });
 
-        if (res.status === 429) {
-          lastErr = new Error(`Quota exhausted: ${model}`);
-          continue;
-        }
+          if (res.status === 429) {
+            lastErr = new Error(`Quota exhausted on ${model}`);
+            continue;
+          }
 
-        if (!res.ok) {
-          if (res.status === 404 || res.status === 400) continue;
-          lastErr = new Error(`Gemini error ${res.status} (${model})`);
-          continue;
-        }
+          if (res.status === 503) {
+            lastErr = new Error(`Model ${model} high demand (503)`);
+            continue;
+          }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let full = '';
-        let buffer = '';
+          if (res.status === 401 || res.status === 403) {
+            skipKey = true; // bad key, skip to next key
+            break;
+          }
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          if (!res.ok) {
+            if (res.status === 404 || res.status === 400) continue;
+            lastErr = new Error(`Gemini error ${res.status} (${model})`);
+            continue;
+          }
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let full = '';
+          let buffer = '';
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
-            if (!raw || raw === '[DONE]') continue;
-            try {
-              const evt = JSON.parse(raw);
-              const chunk = evt.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              if (chunk) {
-                full += chunk;
-                onChunk?.(chunk);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6).trim();
+              if (!raw || raw === '[DONE]') continue;
+              try {
+                const evt = JSON.parse(raw);
+                const chunk = evt.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (chunk) {
+                  full += chunk;
+                  onChunk?.(chunk);
+                }
+              } catch {
+                // ignore malformed SSE lines
               }
-            } catch {
-              // ignore malformed SSE lines
             }
           }
-        }
 
-        if (full) return full;
-      } catch (err) {
-        lastErr = err;
+          if (full) return full;
+        } catch (err) {
+          lastErr = err;
+        }
       }
     }
   }

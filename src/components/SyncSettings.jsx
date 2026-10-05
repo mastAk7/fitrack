@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { loadUserApiKeys, saveUserApiKeys } from '../engine/storage.js';
+import { getGoogleFitClientId, saveGoogleFitClientId, isGoogleFitConnected, connectGoogleFit, disconnectGoogleFit } from '../engine/googleFit.js';
 
 const GIST_ID_KEY = 'sc_gist_id';
 
@@ -14,9 +15,36 @@ export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
   const [saved, setSaved] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
+  // Google Fit
+  const [fitClientId, setFitClientId] = useState(() => getGoogleFitClientId());
+  const [isFitConnected, setIsFitConnected] = useState(() => isGoogleFitConnected());
+  const [fitLoading, setFitLoading] = useState(false);
+  const [fitMsg, setFitMsg] = useState('');
+
   const [userKeys, setUserKeys] = useState(() => loadUserApiKeys());
   const [geminiKeyInput, setGeminiKeyInput] = useState(userKeys.geminiKey || '');
   const [groqKeyInput, setGroqKeyInput] = useState(userKeys.groqKey || '');
+
+  async function handleConnectFit() {
+    setFitLoading(true);
+    setFitMsg('');
+    try {
+      saveGoogleFitClientId(fitClientId);
+      await connectGoogleFit(fitClientId);
+      setIsFitConnected(true);
+      setFitMsg('✓ Google Fit connected!');
+    } catch (err) {
+      setFitMsg('✕ ' + (err.message || 'Connection failed'));
+    } finally {
+      setFitLoading(false);
+    }
+  }
+
+  function handleDisconnectFit() {
+    disconnectGoogleFit();
+    setIsFitConnected(false);
+    setFitMsg('Disconnected from Google Fit');
+  }
 
   function handleSave() {
     const trimmed = input.trim();
@@ -25,6 +53,8 @@ export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
     } else {
       localStorage.removeItem(GIST_ID_KEY);
     }
+
+    saveGoogleFitClientId(fitClientId);
 
     const newKeys = {
       ...userKeys,
@@ -119,6 +149,66 @@ export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
               A gist will be auto-created on first sync.
             </div>
           )}
+        </div>
+
+        {/* Google Fit Integration */}
+        <div style={{ marginBottom: 18, borderTop: '1px solid #1e1e2a', paddingTop: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: '#4a4a5a', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Google Fitness (Runs, Walks, Steps)
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isFitConnected ? '#00e676' : '#5a5a6a' }} />
+              <span style={{ fontSize: 11, color: isFitConnected ? '#00e676' : '#7a7a8a', fontWeight: 600 }}>
+                {isFitConnected ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#7a7a8a', marginBottom: 8 }}>
+            Sync steps, active walking/running burns, and distance directly into your daily maintenance energy calculation.
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#00e676', marginBottom: 4, fontWeight: 500 }}>OAuth Client ID (Web Application)</div>
+            <input
+              type="text"
+              value={fitClientId}
+              onChange={e => setFitClientId(e.target.value)}
+              placeholder="123456789-...apps.googleusercontent.com"
+              style={{
+                width: '100%', boxSizing: 'border-box', background: '#0d0d14', border: '1px solid #1e1e2a',
+                borderRadius: 8, padding: '8px 12px', color: '#e8e8ed',
+                fontSize: 12, outline: 'none', fontFamily: 'monospace',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            {isFitConnected ? (
+              <button
+                onClick={handleDisconnectFit}
+                style={{
+                  background: '#2a1a1a', border: '1px solid #ff525240',
+                  borderRadius: 8, padding: '7px 12px', color: '#ff5252',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >Disconnect Google Fit</button>
+            ) : (
+              <button
+                onClick={handleConnectFit}
+                disabled={fitLoading || !fitClientId.trim()}
+                style={{
+                  background: '#132a1e', border: '1px solid #00e67640',
+                  borderRadius: 8, padding: '7px 14px', color: '#00e676',
+                  fontSize: 12, fontWeight: 600, cursor: fitLoading || !fitClientId.trim() ? 'default' : 'pointer',
+                  opacity: fitLoading || !fitClientId.trim() ? 0.6 : 1,
+                }}
+              >{fitLoading ? 'Connecting…' : 'Connect Google Fit'}</button>
+            )}
+            {fitMsg && (
+              <span style={{ fontSize: 11, color: fitMsg.startsWith('✓') ? '#00e676' : '#ff5252' }}>
+                {fitMsg}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Custom AI API Keys (Optional Fallbacks) */}

@@ -1,5 +1,3 @@
-import { foodDbString } from '../data/foodDb.js';
-import { TRAINING_PLAN } from '../data/trainingPlan.js';
 import { getDailyAggregates } from './adaptive.js';
 import { callClaude } from './claude.js';
 import { DEFAULT_GOAL } from './storage.js';

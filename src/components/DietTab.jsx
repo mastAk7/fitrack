@@ -3,8 +3,9 @@ import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import MealImproviser from './MealImproviser.jsx';
-import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
+import { analyzeMealImage, analyzeMealsBatch, reanalyzeMeal } from '../engine/analyzer.js';
 import { saveDiet, addTombstone } from '../engine/storage.js';
+import { getDynamicMaintenance } from '../engine/activity.js';
 import HealthWidget from './HealthWidget.jsx';
 
 function localDateStr(d = new Date()) {
@@ -50,6 +51,11 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   const [dupWarning, setDupWarning] = useState(null); // similar existing meal
   const autoAnalyzeTriggered = useRef(false);
 
+  // Dynamic Maintenance calculation based on activity & cardio burn
+  const dynamic = useMemo(() => {
+    return getDynamicMaintenance(targets, healthMap[selectedDate]);
+  }, [targets, healthMap, selectedDate]);
+
   // All unique dates with meals, sorted descending
   const loggedDates = useMemo(() => {
     const dates = [...new Set([...dietMap.values()].map(e => e.date))].sort().reverse();
@@ -66,15 +72,27 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   const dayProtein = Math.round(dayMeals.reduce((s, e) => s + (e.protein_g || 0), 0) * 10) / 10;
   const dayCal = Math.round(dayMeals.reduce((s, e) => s + (e.calories || 0), 0));
 
-  // Pending = saved but not yet analyzed (false) or interrupted mid-analysis ('analyzing')
+  // Pending = saved but not yet analyzed (false), or failed, or interrupted mid-analysis ('analyzing')
   const pendingMeals = useMemo(() =>
     [...dietMap.values()].filter(e => e.analyzed === false || e.analyzed === 'analyzing'), [dietMap]);
 
-  // Auto-analyze whenever pending meals appear (covers refresh mid-analysis,
-  // gist sync delivering pending meals, and new meals logged in the same session).
+  // Clean up any stale 'analyzing' meals on first mount
+  useEffect(() => {
+    const stuck = [...dietMap.values()].filter(e => e.analyzed === 'analyzing');
+    if (stuck.length > 0) {
+      const resetMap = new Map(dietMap);
+      for (const e of stuck) {
+        resetMap.set(e.id, { ...e, analyzed: false });
+      }
+      setDietMap(resetMap);
+      saveDiet(resetMap);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-analyze whenever pending meals appear
   useEffect(() => {
     if (pendingMeals.length === 0) {
-      // Reset so the next batch of pending meals triggers auto-analyze again
       autoAnalyzeTriggered.current = false;
       return;
     }
@@ -123,9 +141,9 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   }
 
   function handleDedup() {
-    const seen = new Map(); // key: date → array of summaries already kept
+    const seen = new Map();
     const toDelete = [];
-    const sorted = [...dietMap.values()].sort((a, b) => a.id - b.id); // oldest first
+    const sorted = [...dietMap.values()].sort((a, b) => a.id - b.id);
     for (const entry of sorted) {
       const daySeen = seen.get(entry.date) || [];
       const isDup = daySeen.some(s => isSimilar(entry.summary, s));
@@ -147,16 +165,14 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
     if (!pendingMeals.length || analyzing) return;
     setAnalyzing(true);
     setError('');
-    try {
-      // Mark all pending meals as 'analyzing' in localStorage immediately,
-      // so a refresh mid-call doesn't re-trigger a duplicate analysis.
-      const newMap = new Map(dietMap);
-      for (const e of pendingMeals) {
-        newMap.set(e.id, { ...e, analyzed: 'analyzing' });
-      }
-      setDietMap(newMap);
-      saveDiet(newMap);
+    const newMap = new Map(dietMap);
+    for (const e of pendingMeals) {
+      newMap.set(e.id, { ...e, analyzed: 'analyzing' });
+    }
+    setDietMap(newMap);
+    saveDiet(newMap);
 
+    try {
       const textMeals = pendingMeals.filter(e => !e.imageData);
       const imageMeals = pendingMeals.filter(e => !!e.imageData);
 
@@ -164,19 +180,50 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
         const results = await analyzeMealsBatch(textMeals, targets.cal);
         for (const r of results) {
           const existing = newMap.get(r.id);
-          if (existing) newMap.set(r.id, { ...existing, ...r, analyzed: true });
+          if (existing) newMap.set(r.id, { ...existing, ...r, analyzed: r.analyzed ?? true });
         }
       }
       for (const e of imageMeals) {
         const result = await analyzeMealImage(e.imageData, e.summary, targets.cal);
-        newMap.set(e.id, { ...e, ...result, analyzed: true });
+        newMap.set(e.id, { ...e, ...result, analyzed: result.analyzed ?? true });
       }
       setDietMap(newMap);
       saveDiet(newMap);
     } catch (err) {
-      setError(err.message || 'Analysis failed — check API key');
+      setError(err.message || 'Analysis failed — check API key or tap Retry');
+      // Rollback stuck 'analyzing' entries to 'failed' so user can retry cleanly!
+      const rollbackMap = new Map(dietMap);
+      for (const e of pendingMeals) {
+        const current = rollbackMap.get(e.id);
+        if (current && (current.analyzed === 'analyzing' || !current.analyzed)) {
+          rollbackMap.set(e.id, { ...current, analyzed: 'failed', feedback: 'Analysis interrupted — tap Retry' });
+        }
+      }
+      setDietMap(rollbackMap);
+      saveDiet(rollbackMap);
     } finally {
       setAnalyzing(false);
+      autoAnalyzeTriggered.current = false;
+    }
+  }
+
+  async function handleReanalyzeSingle(entry) {
+    setError('');
+    const newMap = new Map(dietMap);
+    newMap.set(entry.id, { ...entry, analyzed: 'analyzing' });
+    setDietMap(newMap);
+    try {
+      const result = await reanalyzeMeal(entry, targets.cal);
+      const updated = new Map(dietMap);
+      updated.set(entry.id, { ...entry, ...result, analyzed: result.analyzed ?? true });
+      setDietMap(updated);
+      saveDiet(updated);
+    } catch (err) {
+      const updated = new Map(dietMap);
+      updated.set(entry.id, { ...entry, analyzed: 'failed', feedback: err.message || 'Retry failed', error: true });
+      setDietMap(updated);
+      saveDiet(updated);
+      setError(err.message || 'Re-analysis failed');
     }
   }
 
@@ -237,7 +284,42 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
       {/* Daily progress */}
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e1e2a' }}>
         <TargetBar label="Protein" value={dayProtein} target={targets.pro} unit="g" color="#00e676" />
-        <TargetBar label="Calories" value={dayCal} target={targets.cal} unit=" kcal" color="#ffab40" />
+        <TargetBar
+          label="Calories"
+          value={dayCal}
+          target={dynamic.adjustedTarget}
+          baseTarget={targets.cal}
+          activeBurn={dynamic.activeBurn}
+          unit=" kcal"
+          color="#ffab40"
+        />
+
+        {/* Dynamic Maintenance Activity Banner */}
+        {dynamic.activeBurn > 0 && (
+          <div style={{
+            background: '#16130b',
+            border: '1px solid #ffab4040',
+            borderRadius: 8,
+            padding: '8px 12px',
+            marginTop: 8,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 6,
+          }}>
+            <div style={{ fontSize: 11, color: '#ffab40', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span>🔥</span>
+              <span><strong>+{dynamic.activeBurn} kcal</strong> active burn logged today</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#c8c8d8' }}>
+              Maintenance: <strong style={{ color: '#00e676' }}>{dynamic.dynamicMaintenance} kcal</strong>
+              <span style={{ fontSize: 10, color: '#7a7a8a', marginLeft: 4 }}>
+                (Base {dynamic.baseMaintenance} + {dynamic.activeBurn})
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Dynamic Next-Meal Guidance & Improviser */}
@@ -347,7 +429,12 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
           </div>
         ) : (
           dayMeals.map(entry => (
-            <MealCard key={entry.id} entry={entry} onDelete={handleDelete} />
+            <MealCard
+              key={entry.id}
+              entry={entry}
+              onDelete={handleDelete}
+              onReanalyze={handleReanalyzeSingle}
+            />
           ))
         )}
       </div>

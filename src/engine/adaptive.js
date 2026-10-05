@@ -101,9 +101,9 @@ export function getDailyAggregates(dietMap, numDays = 14) {
 }
 
 /**
- * Computes protein streak: consecutive days from today backward with pro >= 130g
+ * Computes protein streak: consecutive days from today backward with pro >= minPro
  */
-export function getProteinStreak(dietMap) {
+export function getProteinStreak(dietMap, minPro = 130) {
   const entries = [...dietMap.values()];
   const dayMap = new Map();
   for (const e of entries) {
@@ -118,7 +118,7 @@ export function getProteinStreak(dietMap) {
     d.setDate(d.getDate() - i);
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const pro = dayMap.get(dateStr) || 0;
-    if (pro >= 130) streak++;
+    if (pro >= minPro) streak++;
     else if (i > 0) break; // gap breaks streak (except today not yet logged)
   }
   return streak;

@@ -27,12 +27,16 @@
   --sar: env(safe-area-inset-right, 0px);
 }
 
-html, body, #root {
-  height: 100%;
+html, body {
   margin: 0;
   padding: 0;
-  overscroll-behavior-y: none;
+  min-height: 100%;
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  min-height: 100%;
 }
 
 body {
@@ -63,13 +67,6 @@ button, a, input, textarea, select {
 button:active {
   transform: scale(0.98);
   transition: transform 0.08s ease;
-}
-
-/* Prevent auto-zooming on focus in iOS Safari */
-@media screen and (max-width: 768px) {
-  input, textarea, select {
-    font-size: 16px !important;
-  }
 }
 
 .tab-content {

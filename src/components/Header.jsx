@@ -12,7 +12,7 @@ const SYNC_META = {
   idle:    { color: '#4a4a5a', label: null },
 };
 
-export default function Header({ phase, week, syncStatus = 'idle', lastSync = null, onSettingsOpen, goal, onGoalOpen }) {
+export default function Header({ phase, week, syncStatus = 'idle', lastSync = null, onSettingsOpen, goal, onGoalOpen, onRefresh, isRefreshing }) {
   const colors = PHASE_COLORS[phase] || PHASE_COLORS['Ramp Up'];
   const sync = SYNC_META[syncStatus] || SYNC_META.idle;
 
@@ -83,8 +83,25 @@ export default function Header({ phase, week, syncStatus = 'idle', lastSync = nu
           {phase}
         </div>
         <button
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          title="Refresh & sync data"
+          style={{
+            background: 'none', border: 'none', cursor: isRefreshing ? 'default' : 'pointer',
+            color: isRefreshing ? '#00e676' : '#7a7a8a', fontSize: 18, padding: '4px', lineHeight: 1,
+            transition: 'color 0.2s',
+          }}
+        >
+          <span style={{
+            display: 'inline-block',
+            transformOrigin: 'center',
+            transform: isRefreshing ? 'rotate(360deg)' : 'none',
+            transition: isRefreshing ? 'transform 0.8s ease' : 'none',
+          }}>↻</span>
+        </button>
+        <button
           onClick={onSettingsOpen}
-          title="Sync settings"
+          title="Sync & API settings"
           style={{
             background: 'none', border: 'none', cursor: 'pointer',
             color: '#4a4a5a', fontSize: 16, padding: '4px', lineHeight: 1,

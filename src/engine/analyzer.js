@@ -132,10 +132,38 @@ The sum of item calories and protein_g must equal the top-level totals.`;
     }
     return [...localResults, ...remoteResults];
   } catch (err) {
-    console.warn('Remote meal batch analysis error, returning local results:', err);
-    if (localResults.length > 0) return localResults;
-    throw err;
+    console.warn('Remote meal batch analysis error:', err);
+    // Mark failed remote meals with 'failed' state instead of leaving them stuck in 'analyzing'
+    const failedRemote = needRemote.map(e => ({
+      id: e.id,
+      summary: e.summary,
+      protein_g: 0,
+      calories: 0,
+      rating: 'ok',
+      feedback: 'Analysis failed — tap Retry on card.',
+      items: [],
+      analyzed: 'failed',
+      error: true,
+    }));
+    return [...localResults, ...failedRemote];
   }
+}
+
+/**
+ * Re-analyzes a single meal entry (used by Retry button or manual re-analysis)
+ */
+export async function reanalyzeMeal(entry, dailyCalTarget = 2000) {
+  if (entry.imageData) {
+    return analyzeMealImage(entry.imageData, entry.summary, dailyCalTarget);
+  }
+  // Try local first
+  const local = parseMealLocal(entry.summary || '', dailyCalTarget);
+  if (local) {
+    return { ...local, analyzed: true, error: false };
+  }
+  // Fall back to remote
+  const res = await analyzeMealWithGemini(entry.summary || '', null, dailyCalTarget);
+  return res;
 }
 
 /**
@@ -258,13 +286,25 @@ The sum of item calories and protein_g must equal the top-level totals.`;
       : prompt;
 
     const responseText = await callClaude({
-      max_tokens: 512,
+      max_tokens: 2048,
       messages: [{ role: 'user', content }],
     });
 
     // Strip markdown code fences if present
     const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-    const parsed = JSON.parse(cleaned);
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // Regex fallback if JSON contains minor trailing artifacts
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Could not parse nutrition JSON');
+      }
+    }
+
     return {
       summary: parsed.summary || text,
       protein_g: Number(parsed.protein_g) || 0,
@@ -272,6 +312,8 @@ The sum of item calories and protein_g must equal the top-level totals.`;
       rating: parsed.rating || rateEntry(Number(parsed.protein_g) || 0, Number(parsed.calories) || 0, dailyCalTarget),
       feedback: parsed.feedback || '',
       items: parsed.items || [],
+      analyzed: true,
+      error: false,
     };
   } catch (err) {
     console.error('Gemini meal analysis error:', err);
@@ -280,8 +322,10 @@ The sum of item calories and protein_g must equal the top-level totals.`;
       protein_g: 0,
       calories: 0,
       rating: 'ok',
-      feedback: 'Could not analyze — check API key or try again.',
+      feedback: 'Could not analyze — tap "Retry" to analyze again.',
       items: [],
+      analyzed: 'failed',
+      error: true,
     };
   }
 }
