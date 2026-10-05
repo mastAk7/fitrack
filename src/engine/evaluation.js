@@ -3,6 +3,8 @@
  * Replaces unweighted averaging with a scientifically calibrated 4-pillar athletic rubric.
  */
 
+import { getDynamicMaintenance } from './activity.js';
+
 export function calculateDailyScore(dayAgg, targets, hasWorkout, health = {}, hadOverload = false) {
   const pro = dayAgg?.pro || 0;
   const cal = dayAgg?.cal || 0;
@@ -26,8 +28,8 @@ export function calculateDailyScore(dayAgg, targets, hasWorkout, health = {}, ha
   // 2. Calorie Deficit Accuracy (25 max points)
   let calPoints = 0;
   if (cal > 0) {
-    const activeBurn = Number(health?.active_cals) || 0;
-    const effectiveTarget = (targets.cal || 2000) + activeBurn;
+    const dynamic = getDynamicMaintenance(targets, health);
+    const effectiveTarget = dynamic.adjustedTarget;
     const diff = cal - effectiveTarget;
     if (diff <= 50 && diff >= -150) {
       calPoints = 25; // sweet spot

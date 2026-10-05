@@ -1,6 +1,7 @@
 import { getDailyAggregates } from './adaptive.js';
 import { callClaude } from './claude.js';
 import { DEFAULT_GOAL } from './storage.js';
+import { getDynamicMaintenance } from './activity.js';
 
 const BRIEFING_KEY = 'sc_daily_briefing';
 
@@ -24,8 +25,14 @@ export function buildCoachContext(dietMap = new Map(), workMap = new Map(), targ
   const today = todayStr();
   const activeGoal = goal || DEFAULT_GOAL;
   const safeTargets = targets || { pro: 140, cal: 2000 };
+  const todayHealth = healthMap[today] || {};
+  const dynamic = getDynamicMaintenance(safeTargets, todayHealth);
+
   const targetPro = safeTargets.pro || 140;
-  const targetCal = safeTargets.cal || 2000;
+  const targetCal = dynamic.adjustedTarget;
+  const baseTargetCal = safeTargets.cal || 2000;
+  const activeBurn = dynamic.activeBurn;
+  const maintenanceCal = dynamic.dynamicMaintenance;
 
   // ── TODAY'S RUNWAY ──────────────────────────────────────────
   const allMeals = dietMap instanceof Map ? [...dietMap.values()] : Array.isArray(dietMap) ? dietMap : [];
@@ -63,7 +70,6 @@ export function buildCoachContext(dietMap = new Map(), workMap = new Map(), targ
     .join('\n') || '• No recent sessions.';
 
   // ── RECENT SLEEP & RECOVERY ─────────────────────────────────
-  const todayHealth = healthMap[today] || {};
   const recentSleep = todayHealth.sleep_h || 0;
   const recentWater = todayHealth.water || 0;
 
@@ -81,6 +87,8 @@ Pace: ${activeGoal.weeklyPace_kg || 0.5}kg/week | Target Protein Floor: 1.8g/kg 
 
 ═══ TODAY'S REAL-TIME RUNWAY (${today}) ══════════════════════
 Consumed: ${todayPro}g P (${proPercent}%) / ${todayCal} kcal (${calPercent}%)
+Daily Target: ${targetPro}g Protein / ${targetCal} kcal (Base: ${baseTargetCal} kcal${activeBurn > 0 ? `, +${activeBurn} kcal active burn boost` : ''})
+Daily Maintenance: ${maintenanceCal} kcal
 Remaining to hit target: **${remainPro}g Protein** / **${remainCal} kcal**
 Logged Meals:
 ${todayMealsText}

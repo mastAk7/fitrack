@@ -35,12 +35,15 @@ const MEAL_SUGGESTIONS = [
   },
 ];
 
-export default function MealImproviser({ dayMeals, targets, onSelectSuggestion }) {
+export default function MealImproviser({ dayMeals, targets, dynamic, onSelectSuggestion }) {
+  const activeBurn = dynamic?.activeBurn || 0;
+  const effectiveCalTarget = dynamic?.adjustedTarget || targets?.cal || 2000;
+
   const { totalP, totalC, remP, remC, density, carbTrapDetected } = useMemo(() => {
     const p = Math.round(dayMeals.reduce((s, e) => s + (e.protein_g || 0), 0) * 10) / 10;
     const c = Math.round(dayMeals.reduce((s, e) => s + (e.calories || 0), 0));
     const rp = Math.max(0, Math.round((targets.pro - p) * 10) / 10);
-    const rc = Math.max(0, Math.round(targets.cal - c));
+    const rc = Math.max(0, Math.round(effectiveCalTarget - c));
     const d = rc > 0 ? (rp / (rc / 100)) : 99;
 
     // Check if the last meal was low protein and carb heavy
@@ -48,7 +51,7 @@ export default function MealImproviser({ dayMeals, targets, onSelectSuggestion }
     const trap = lastMeal && (lastMeal.protein_g < 14) && (lastMeal.calories > 320);
 
     return { totalP: p, totalC: c, remP: rp, remC: rc, density: d, carbTrapDetected: trap };
-  }, [dayMeals, targets]);
+  }, [dayMeals, targets, effectiveCalTarget]);
 
   // If already reached protein target
   if (remP <= 0 && dayMeals.length > 0) {
@@ -61,7 +64,7 @@ export default function MealImproviser({ dayMeals, targets, onSelectSuggestion }
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#00e676' }}>Protein Target Achieved!</div>
           <div style={{ fontSize: 11, color: '#7a7a8a' }}>
-            {totalP}g logged (target {targets.pro}g). {remC > 0 ? `${remC} kcal left if you need light fuel.` : 'Calorie target reached.'}
+            {totalP}g logged (target {targets.pro}g). {remC > 0 ? `${remC} kcal left in today's active budget.` : 'Calorie target reached.'}
           </div>
         </div>
       </div>
@@ -89,7 +92,7 @@ export default function MealImproviser({ dayMeals, targets, onSelectSuggestion }
           color: density >= 8 ? '#ff5252' : '#b388ff',
           border: `1px solid ${density >= 8 ? '#ff525240' : '#b388ff30'}`,
         }}>
-          Need {remP}g P in {remC} kcal
+          Need {remP}g P in {remC} kcal{activeBurn > 0 ? ` (+${activeBurn} burn)` : ''}
         </span>
       </div>
 
@@ -97,8 +100,8 @@ export default function MealImproviser({ dayMeals, targets, onSelectSuggestion }
         {carbTrapDetected
           ? `Your earlier meal was carb-heavy (${dayMeals[dayMeals.length - 1].protein_g}g P). Balance your day with a high-density protein pivot:`
           : remC < 350 && remP > 20
-          ? `Calorie runway is tight (${remC} kcal). Avoid roti/rice and prioritize pure lean sources to reach ${targets.pro}g protein:`
-          : `You have ${remC} kcal remaining. Here are optimal Indian meal options to comfortably reach your ${targets.pro}g protein target:`}
+          ? `Calorie runway is tight (${remC} kcal remaining). Avoid roti/rice and prioritize pure lean sources to reach ${targets.pro}g protein:`
+          : `You have ${remC} kcal remaining${activeBurn > 0 ? ` (boosted by +${activeBurn} kcal active burn)` : ''}. Here are optimal Indian meal options to comfortably reach your ${targets.pro}g protein target:`}
       </div>
 
       {/* Suggestion Cards */}

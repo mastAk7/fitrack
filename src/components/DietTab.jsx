@@ -308,6 +308,7 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
         <MealImproviser
           dayMeals={dayMeals}
           targets={targets}
+          dynamic={dynamic}
           onSelectSuggestion={(suggestionText) => setText(suggestionText)}
         />
       </div>
