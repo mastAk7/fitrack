@@ -18,15 +18,24 @@ export function parseExerciseLine(line) {
   const splitMatch = raw.match(/^(.*?)(?:(?:\s+)(\d+)\s*(?:[x×]|sets?\s*of)\s*(\d+|max|\d+s)(.*))$/i);
 
   if (!splitMatch) {
-    // Single set or simple text notation
+    // Single set or simple text notation e.g. "Bicep Curls drop 12→6kg ×7"
     const simpleWeightMatch = raw.match(/@?\s*(\d+(?:\.\d+)?)\s*kg/i);
+    const repMatch = raw.match(/[×x]\s*(\d+)/i);
+    const cleanName = raw
+      .replace(/\s*(?:drop\s+)?\d+[\s→-]*\d*\s*kg/gi, '')
+      .replace(/\s*[×x]\s*\d+/gi, '')
+      .replace(/\(.*?\)/g, '')
+      .trim();
+
+    const reps = repMatch ? parseInt(repMatch[1], 10) : 1;
+    const weight_kg = simpleWeightMatch ? parseFloat(simpleWeightMatch[1]) : 0;
     return {
       raw,
-      name: raw.replace(/@?\s*\d+(?:\.\d+)?\s*kg/i, '').trim(),
+      name: cleanName || raw.replace(/@?\s*\d+(?:\.\d+)?\s*kg/i, '').trim(),
       sets: 1,
-      reps: 1,
-      weight_kg: simpleWeightMatch ? parseFloat(simpleWeightMatch[1]) : 0,
-      totalVolume_kg: simpleWeightMatch ? parseFloat(simpleWeightMatch[1]) : 1,
+      reps,
+      weight_kg,
+      totalVolume_kg: weight_kg > 0 ? reps * weight_kg : reps,
       isBodyweight: !simpleWeightMatch,
     };
   }

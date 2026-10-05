@@ -255,27 +255,46 @@ export function extractMusclesLocal(exerciseLines) {
   }
 
   // Back & Lats
-  if (/pull[\s-]?up|chin[\s-]?up|lat pull/i.test(text)) {
+  if (/pull[\s-]?up|chin[\s-]?up|lat pull|pulldown/i.test(text)) {
     addMuscle('Lats', 5);
     addMuscle('Upper Back', 4);
     addMuscle('Biceps', 3);
   }
-  if (/row|db row|dumbbell row/i.test(text)) {
+  if (/row|db row|dumbbell row|cable row|barbell row/i.test(text)) {
     addMuscle('Upper Back', 5);
     addMuscle('Lats', 4);
     addMuscle('Rear Delts', 3);
     addMuscle('Biceps', 2);
   }
+  if (/deadlift|rdl|romanian/i.test(text)) {
+    addMuscle('Lower Back', 5);
+    addMuscle('Hamstrings', 4);
+    addMuscle('Glutes', 4);
+    addMuscle('Traps', 3);
+  }
+  if (/shrug/i.test(text)) {
+    addMuscle('Traps', 5);
+    addMuscle('Upper Back', 3);
+  }
 
   // Chest & Triceps
-  if (/push[\s-]?up|bench press|floor press|dips/i.test(text)) {
+  if (/push[\s-]?up|bench press|floor press|dips|db press|dumbbell press|chest press|incline press|decline press/i.test(text)) {
     addMuscle('Chest', 5);
     addMuscle('Triceps', 4);
     addMuscle('Front Delts', 3);
   }
+  if (/fl(?:y|ies)|pec deck/i.test(text)) {
+    if (/rear|reverse/i.test(text)) {
+      addMuscle('Rear Delts', 5);
+      addMuscle('Upper Back', 3);
+    } else {
+      addMuscle('Chest', 5);
+      addMuscle('Front Delts', 2);
+    }
+  }
 
   // Shoulders
-  if (/shoulder press|overhead press|ohp|pike push/i.test(text)) {
+  if (/shoulder press|overhead press|ohp|pike push|arnold press/i.test(text)) {
     addMuscle('Front Delts', 5);
     addMuscle('Side Delts', 4);
     addMuscle('Triceps', 3);
@@ -283,28 +302,36 @@ export function extractMusclesLocal(exerciseLines) {
   if (/lateral raise|side raise/i.test(text)) {
     addMuscle('Side Delts', 5);
   }
-  if (/rear delt|face pull/i.test(text)) {
+  if (/rear delt|face pull|reverse fl(?:y|ies)/i.test(text)) {
     addMuscle('Rear Delts', 5);
     addMuscle('Traps', 3);
   }
 
   // Arms & Forearms
-  if (/bicep curl|hammer curl|concentration curl/i.test(text)) {
-    addMuscle('Biceps', 5);
-    addMuscle('Forearms', 3);
+  if (/bicep curl|hammer curl|concentration curl|preacher curl|spider curl|\bcurl\b/i.test(text)) {
+    if (!/wrist|leg|hamstring/i.test(text)) {
+      addMuscle('Biceps', 5);
+      addMuscle('Forearms', 3);
+    }
   }
-  if (/tricep|skull crusher|chair dip/i.test(text)) {
+  if (/tricep|skull crusher|chair dip|pushdown|kickback/i.test(text)) {
     addMuscle('Triceps', 5);
   }
-  if (/wrist curl/i.test(text)) {
+  if (/wrist curl|reverse curl/i.test(text)) {
     addMuscle('Forearms', 5);
   }
 
   // Legs & Glutes
-  if (/squat|lunge|split squat|leg press/i.test(text)) {
+  if (/squat|lunge|split squat|leg press|hack squat/i.test(text)) {
     addMuscle('Quads', 5);
     addMuscle('Glutes', 4);
     addMuscle('Hamstrings', 3);
+  }
+  if (/leg extension|quad extension/i.test(text)) {
+    addMuscle('Quads', 5);
+  }
+  if (/hamstring curl|leg curl/i.test(text)) {
+    addMuscle('Hamstrings', 5);
   }
   if (/calf raise/i.test(text)) {
     addMuscle('Calves', 5);
@@ -315,9 +342,16 @@ export function extractMusclesLocal(exerciseLines) {
   }
 
   // Core
-  if (/plank|mountain climber|leg raise|crunch|sit[\s-]?up/i.test(text)) {
+  if (/plank|mountain climber|leg raise|crunch|sit[\s-]?up|russian twist|ab rollout/i.test(text)) {
     addMuscle('Abs', 4);
     addMuscle('Obliques', 3);
+  }
+
+  // Conditioning
+  if (/burpee/i.test(text)) {
+    addMuscle('Chest', 4);
+    addMuscle('Quads', 4);
+    addMuscle('Abs', 3);
   }
 
   return Array.from(muscleMap.entries()).map(([name, intensity]) => ({ name, intensity }));

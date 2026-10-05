@@ -3,7 +3,8 @@ import MealCard from './MealCard.jsx';
 import TargetBar from './TargetBar.jsx';
 import ImageUpload from './ImageUpload.jsx';
 import MealImproviser from './MealImproviser.jsx';
-import { analyzeMealImage, analyzeMealsBatch } from '../engine/analyzer.js';
+import FoodLibraryModal from './FoodLibraryModal.jsx';
+import { analyzeMealImage, analyzeMealsBatch, reanalyzeMeal } from '../engine/analyzer.js';
 import { saveDiet, addTombstone } from '../engine/storage.js';
 import { getDynamicMaintenance } from '../engine/activity.js';
 import HealthWidget from './HealthWidget.jsx';
@@ -49,6 +50,7 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [dupWarning, setDupWarning] = useState(null); // similar existing meal
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const autoAnalyzeTriggered = useRef(false);
 
   // Dynamic Maintenance calculation based on activity & cardio burn
@@ -216,6 +218,65 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
     saveDiet(newMap);
   }
 
+  async function handleRetry(id) {
+    const entry = dietMap.get(id);
+    if (!entry) return;
+    const newMap = new Map(dietMap);
+    newMap.set(id, { ...entry, analyzed: 'analyzing', error: false, feedback: 'Re-analyzing dish...' });
+    setDietMap(newMap);
+    saveDiet(newMap);
+
+    try {
+      const res = await reanalyzeMeal(entry, targets.cal);
+      const updated = newMap.get(id);
+      if (updated) {
+        newMap.set(id, { ...updated, ...res, analyzed: res.analyzed ?? true, error: res.error ?? false });
+        setDietMap(newMap);
+        saveDiet(newMap);
+      }
+    } catch (err) {
+      const updated = newMap.get(id);
+      if (updated) {
+        newMap.set(id, { ...updated, analyzed: 'failed', feedback: 'Analysis failed — tap Retry', error: true });
+        setDietMap(newMap);
+        saveDiet(newMap);
+      }
+    }
+  }
+
+  async function handleEditMeal(id, newSummary) {
+    const entry = dietMap.get(id);
+    if (!entry) return;
+    const updatedEntry = {
+      ...entry,
+      summary: newSummary,
+      analyzed: 'analyzing',
+      error: false,
+      feedback: 'Re-analyzing updated meal...',
+    };
+    const newMap = new Map(dietMap);
+    newMap.set(id, updatedEntry);
+    setDietMap(newMap);
+    saveDiet(newMap);
+
+    try {
+      const res = await reanalyzeMeal(updatedEntry, targets.cal);
+      const updated = newMap.get(id);
+      if (updated) {
+        newMap.set(id, { ...updated, ...res, analyzed: res.analyzed ?? true, error: res.error ?? false });
+        setDietMap(newMap);
+        saveDiet(newMap);
+      }
+    } catch (err) {
+      const updated = newMap.get(id);
+      if (updated) {
+        newMap.set(id, { ...updated, analyzed: 'failed', feedback: 'Analysis failed — tap Retry', error: true });
+        setDietMap(newMap);
+        saveDiet(newMap);
+      }
+    }
+  }
+
   // Per-day stats for history list
   const dateStats = useMemo(() => {
     const stats = {};
@@ -318,10 +379,32 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
 
       {/* Log input */}
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e1e2a' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#c8c8d8' }}>Log Meal</span>
+          <button
+            onClick={() => setLibraryOpen(true)}
+            style={{
+              background: '#1a1a2e',
+              border: '1px solid #3a3a5a',
+              borderRadius: 8,
+              padding: '4px 10px',
+              color: '#b388ff',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <span>🍱</span>
+            <span>Food Library</span>
+          </button>
+        </div>
         <textarea
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder="What did you eat? e.g. 2 roti, big bowl moong dal, medium curd"
+          placeholder="What did you eat? e.g. 2 roti, 2 bowls sabzi, 1 plate soya chunk pulav"
           rows={3}
           style={{
             width: '100%',
@@ -415,6 +498,8 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
               key={entry.id}
               entry={entry}
               onDelete={handleDelete}
+              onRetry={handleRetry}
+              onEdit={handleEditMeal}
             />
           ))
         )}
@@ -460,6 +545,12 @@ export default function DietTab({ dietMap, setDietMap, targets, healthMap, setHe
           })}
         </div>
       )}
+
+      {/* Food Components Library Modal */}
+      <FoodLibraryModal
+        isOpen={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+      />
     </div>
   );
 }

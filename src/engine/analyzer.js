@@ -1,5 +1,6 @@
 import { callClaude } from './claude.js';
-import { parseMealLocal, extractMusclesLocal } from './localFoodParser.js';
+import { resolveMealComponents, learnComponentsFromAnalysis } from './foodComponents.js';
+import { extractMusclesLocal } from './localFoodParser.js';
 
 function rateEntry(protein_g, calories, dailyCal = 2000) {
   const threshold45 = dailyCal * 0.45;
@@ -38,38 +39,47 @@ BREAD (standard Indian sizes):
   1 puri           = ~25 g → 90 kcal  / 2 g protein
   1 slice bread    = ~25 g → 80 kcal  / 3 g protein
 
-For all other dishes (chilli paneer, dal makhani, palak paneer, etc.) use your food
-knowledge for that specific dish. Do NOT flatten different dishes into a generic category.
-
-Quantities multiply linearly: 2 medium bowls = 2 × one medium bowl.`.trim();
+COMPONENTS & DISH SPECIFICITY:
+  Distinct dishes must be treated strictly on their own merits:
+  - "soya chunk pulav" is a cooked mixed rice dish (~18g protein / plate), NOT dry raw soya chunks.
+  - "soya chunk rice" is evaluated by its specific proportion, separate from pulav.
+  - "2 roti, 2 bowls sabzi" must break into 2 distinct items: "Roti" and "Sabzi".
+  Quantities multiply linearly: 2 medium bowls = 2 × one medium bowl.`.trim();
 
 /**
- * Analyzes a meal from text. Tries local fast-path Indian parser first (0 tokens), falls back to LLM.
+ * Analyzes a meal from text. Checks exact-component database first (0 tokens),
+ * and falls back to LLM for unknown components, learning and saving them permanently upon completion.
  */
 export async function analyzeMealText(text, dailyCalTarget = 2000) {
-  const local = parseMealLocal(text, dailyCalTarget);
-  if (local) return local;
-  return analyzeMealWithGemini(text, null, dailyCalTarget);
+  const localRes = resolveMealComponents(text, dailyCalTarget);
+  if (localRes.resolved) {
+    return localRes.meal;
+  }
+  const remote = await analyzeMealWithGemini(text, null, dailyCalTarget);
+  if (remote && remote.items && remote.items.length > 0) {
+    learnComponentsFromAnalysis(text, remote.items);
+  }
+  return remote;
 }
 
 /**
- * Batch-analyzes multiple text meals. Evaluates recognizable Indian staples locally (0 tokens),
- * and only bundles unrecognized meals into a single AI call.
+ * Batch-analyzes multiple text meals. Evaluates exact-mapped components locally (0 tokens),
+ * and bundles meals with unknown components into an AI call. Learns and saves newly analyzed components.
  */
 export async function analyzeMealsBatch(entries, dailyCalTarget = 2000) {
   const localResults = [];
   const needRemote = [];
 
   for (const e of entries) {
-    const local = parseMealLocal(e.summary || '', dailyCalTarget);
-    if (local) {
-      localResults.push({ id: e.id, ...local });
+    const localRes = resolveMealComponents(e.summary || '', dailyCalTarget);
+    if (localRes.resolved) {
+      localResults.push({ id: e.id, ...localRes.meal });
     } else {
       needRemote.push(e);
     }
   }
 
-  // If all meals were parsed locally, return immediately without calling any API!
+  // If all meals were parsed locally from exact mappings, return immediately without calling any API!
   if (needRemote.length === 0) {
     return localResults;
   }
@@ -80,9 +90,10 @@ export async function analyzeMealsBatch(entries, dailyCalTarget = 2000) {
 
 ${FOOD_REF}
 
-Step 1: convert vessel size → grams using the table above.
-Step 2: apply accurate macros for the SPECIFIC dish (chilli paneer ≠ palak paneer ≠ matar paneer; dal makhani ≠ moong dal; etc.). Use your food knowledge — do NOT flatten different dishes into a generic category.
-Step 3: multiply linearly for multiple servings.
+Step 1: Break down each meal into its distinct components (e.g. "2 roti, 2 bowls sabzi" -> "Roti" and "Sabzi"; "soya chunk pulav" is a specific cooked dish, distinct from "soya chunk rice" or dry soya chunks).
+Step 2: Convert vessel size → grams using the table above.
+Step 3: Apply accurate macros for the SPECIFIC dish. Use your food knowledge — do NOT flatten different dishes into a generic category.
+Step 4: Multiply linearly for multiple servings.
 
 Analyze each meal below. Return ONLY a JSON array — no markdown, no extra text.
 
@@ -130,6 +141,17 @@ The sum of item calories and protein_g must equal the top-level totals.`;
         }).filter(Boolean);
       }
     }
+
+    // Auto-learn newly analyzed components into persistent library
+    for (const r of remoteResults) {
+      if (r && Array.isArray(r.items) && r.items.length > 0) {
+        const originEntry = needRemote.find(e => e.id === r.id);
+        if (originEntry) {
+          learnComponentsFromAnalysis(originEntry.summary, r.items);
+        }
+      }
+    }
+
     return [...localResults, ...remoteResults];
   } catch (err) {
     console.warn('Remote meal batch analysis error:', err);
@@ -156,13 +178,16 @@ export async function reanalyzeMeal(entry, dailyCalTarget = 2000) {
   if (entry.imageData) {
     return analyzeMealImage(entry.imageData, entry.summary, dailyCalTarget);
   }
-  // Try local first
-  const local = parseMealLocal(entry.summary || '', dailyCalTarget);
-  if (local) {
-    return { ...local, analyzed: true, error: false };
+  // Try exact local mapping first
+  const localRes = resolveMealComponents(entry.summary || '', dailyCalTarget);
+  if (localRes.resolved) {
+    return { ...localRes.meal, analyzed: true, error: false };
   }
   // Fall back to remote
   const res = await analyzeMealWithGemini(entry.summary || '', null, dailyCalTarget);
+  if (res && res.items && res.items.length > 0) {
+    learnComponentsFromAnalysis(entry.summary, res.items);
+  }
   return res;
 }
 
@@ -225,7 +250,11 @@ Intensity 1-5 (1=very light, 5=very heavy). Only include muscles actually worked
  * Analyzes a meal from an image (base64 data URI) + optional text context.
  */
 export async function analyzeMealImage(base64DataUri, textContext = '', dailyCalTarget = 2000) {
-  return analyzeMealWithGemini(textContext || 'Identify food in this image', base64DataUri, dailyCalTarget);
+  const res = await analyzeMealWithGemini(textContext || 'Identify food in this image', base64DataUri, dailyCalTarget);
+  if (res && res.items && res.items.length > 0) {
+    learnComponentsFromAnalysis(textContext || res.summary, res.items);
+  }
+  return res;
 }
 
 async function analyzeMealWithGemini(text, imageDataUri, dailyCalTarget = 2000) {

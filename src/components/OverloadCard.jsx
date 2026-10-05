@@ -25,7 +25,7 @@ export default function OverloadCard({ targets, consistency, sleep_h }) {
             <div style={{ fontSize: 10, color: '#7a7a8a' }}>
               {lowSleep
                 ? `Only ${sleep_h}h sleep logged — prioritize form, hold volume`
-                : 'Beat past reps & weights for progressive adaptation'}
+                : 'Home Setup: Door pull-up bar • Bodyweight • 6–12kg DBs • Backpack'}
             </div>
           </div>
         </div>

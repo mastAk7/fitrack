@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { TRAINING_PLAN, dateToplanIndex } from '../data/trainingPlan.js';
 import { savePlanMods, saveWork, addTombstone } from '../engine/storage.js';
 import { extractMusclesBatch } from '../engine/analyzer.js';
+import { extractMusclesLocal } from '../engine/localFoodParser.js';
+import { parseWorkoutExercises } from '../engine/exerciseParser.js';
 import OverloadCard from './OverloadCard.jsx';
 import { getOverloadTargets, getMuscleConsistencyStreaks } from '../engine/overloadEngine.js';
 
@@ -31,13 +33,13 @@ function countLogLines(text) {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const LOG_PLACEHOLDER = `Log what you actually did, e.g.
+const LOG_PLACEHOLDER = `Log what you actually did at home, e.g.
 
-Pull-ups 5 × 4
+Pull-ups 5 × 4 (door bar)
+Backpack push-ups 3 × 12
 DB rows 4 × 12 @ 10kg
-DB flies 3 × 12 @ 6→8kg
 Bicep curls 3 × 10 @ 8kg, drop to 6kg
-Wrist curls 3 × 20
+Pike push-ups 3 × 8
 Plank 3 × 60s`;
 
 export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods, healthMap = {}, setHealthMap }) {
@@ -49,6 +51,9 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
   const [analyzing, setAnalyzing] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [editingWorkoutId, setEditingWorkoutId] = useState(null);
+  const [editExercisesText, setEditExercisesText] = useState('');
+  const autoAnalyzeTriggered = useRef(false);
 
   const dayHealth = healthMap[selectedDate] || {};
   const dayActivities = useMemo(() => {
@@ -102,10 +107,21 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
   const pendingWorkouts = useMemo(() =>
     [...workMap.values()].filter(w => !w.muscles?.length), [workMap]);
 
+  // Auto-analyze pending workouts in background
+  useEffect(() => {
+    if (pendingWorkouts.length > 0 && !analyzing && !autoAnalyzeTriggered.current) {
+      autoAnalyzeTriggered.current = true;
+      handleAnalyze();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingWorkouts.length]);
+
   function handleSave() {
     if (!log.trim()) return;
     setSaving(true);
     const lines = log.split('\n').map(l => l.trim()).filter(Boolean);
+    const localMuscles = extractMusclesLocal(lines);
+
     const entry = {
       id: Date.now(),
       date: selectedDate,
@@ -114,7 +130,7 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
       completed: countLogLines(log),
       total: countLogLines(log),
       notes: '',
-      muscles: [],
+      muscles: localMuscles || [],
     };
     const newMap = new Map(workMap);
     newMap.set(entry.id, entry);
@@ -126,11 +142,46 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
     setSaving(false);
   }
 
-  async function handleAnalyze() {
-    if (!pendingWorkouts.length || analyzing) return;
+  function handleStartEdit(w) {
+    setEditingWorkoutId(w.id);
+    setEditExercisesText((w.exercises || []).join('\n'));
+    setConfirmDeleteId(null);
+  }
+
+  function handleSaveEditWorkout(id) {
+    const lines = editExercisesText.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    const current = workMap.get(id);
+    if (!current) return;
+
+    const localMuscles = extractMusclesLocal(lines);
+    const updated = {
+      ...current,
+      exercises: lines,
+      completed: lines.length,
+      total: lines.length,
+      muscles: localMuscles.length > 0 ? localMuscles : current.muscles,
+    };
+    const newMap = new Map(workMap);
+    newMap.set(id, updated);
+    setWorkMap(newMap);
+    saveWork(newMap);
+    setEditingWorkoutId(null);
+
+    // If local couldn't extract or needs re-analysis
+    if (!localMuscles.length) {
+      handleAnalyze(id);
+    }
+  }
+
+  async function handleAnalyze(targetWorkoutId = null) {
+    const toAnalyze = targetWorkoutId
+      ? [workMap.get(targetWorkoutId)].filter(Boolean)
+      : pendingWorkouts;
+    if (!toAnalyze.length || analyzing) return;
     setAnalyzing(true);
     try {
-      const results = await extractMusclesBatch(pendingWorkouts);
+      const results = await extractMusclesBatch(toAnalyze);
       const newMap = new Map(workMap);
       for (const r of results) {
         const existing = newMap.get(r.id);
@@ -142,6 +193,7 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
       console.error('Batch muscle extraction error:', err);
     } finally {
       setAnalyzing(false);
+      autoAnalyzeTriggered.current = false;
     }
   }
 
@@ -400,36 +452,154 @@ export default function WorkoutTab({ workMap, setWorkMap, planMods, setPlanMods,
           <div style={{ fontSize: 11, color: '#4a4a5a', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
             Logged — {formatDate(selectedDate)}
           </div>
-          {dayWorkouts.map(w => (
-            <div key={w.id} style={{
-              background: '#13131a', border: '1px solid #1e1e2a',
-              borderRadius: 14, padding: '12px 14px', marginBottom: 8,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: '#b388ff', fontWeight: 500 }}>{w.dayLabel}</span>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#4a4a5a' }}>{w.completed} exercises</span>
-                  {confirmDeleteId === w.id ? (
-                    <>
-                      <button onClick={() => handleDelete(w.id)} style={{ background: '#ff525215', border: '1px solid #ff525240', borderRadius: 6, color: '#ff5252', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Delete</button>
-                      <button onClick={() => setConfirmDeleteId(null)} style={{ background: 'none', border: '1px solid #2a2a3a', borderRadius: 6, color: '#7a7a8a', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Cancel</button>
-                    </>
-                  ) : (
-                    <button onClick={() => setConfirmDeleteId(w.id)} style={{ background: 'none', border: 'none', color: '#3a3a4a', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }} title="Delete">×</button>
-                  )}
+          {dayWorkouts.map(w => {
+            const parsedExercises = parseWorkoutExercises(w.exercises || []);
+            const totalVolume = parsedExercises.reduce((sum, p) => sum + (p.totalVolume_kg || 0), 0);
+            const hasMuscles = Array.isArray(w.muscles) && w.muscles.length > 0;
+
+            return (
+              <div key={w.id} style={{
+                background: '#13131a', border: '1px solid #1e1e2a',
+                borderRadius: 14, padding: '12px 14px', marginBottom: 8,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 13, color: '#b388ff', fontWeight: 600 }}>{w.dayLabel}</span>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 }}>
+                      <span style={{ fontSize: 11, color: '#7a7a8a' }}>{w.completed} exercises</span>
+                      {totalVolume > 0 && (
+                        <span style={{ fontSize: 11, color: '#ffab40', fontWeight: 600 }}>
+                          • {totalVolume.toLocaleString()} kg volume load
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {confirmDeleteId === w.id ? (
+                      <>
+                        <button onClick={() => handleDelete(w.id)} style={{ background: '#ff525215', border: '1px solid #ff525240', borderRadius: 6, color: '#ff5252', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Delete</button>
+                        <button onClick={() => setConfirmDeleteId(null)} style={{ background: 'none', border: '1px solid #2a2a3a', borderRadius: 6, color: '#7a7a8a', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleStartEdit(w)}
+                          style={{ background: 'none', border: 'none', color: '#5a5a6a', cursor: 'pointer', fontSize: 13, padding: '2px 4px' }}
+                          title="Edit workout (fix typos)"
+                        >
+                          ✎
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(w.id)} style={{ background: 'none', border: 'none', color: '#3a3a4a', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }} title="Delete">×</button>
+                      </>
+                    )}
+                  </div>
                 </div>
+
+                {editingWorkoutId === w.id ? (
+                  <div style={{ marginTop: 8, marginBottom: 8 }}>
+                    <textarea
+                      value={editExercisesText}
+                      onChange={e => setEditExercisesText(e.target.value)}
+                      rows={Math.max(3, (w.exercises || []).length + 1)}
+                      style={{
+                        width: '100%',
+                        background: '#0d0d14',
+                        border: '1px solid #b388ff',
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        color: '#e8e8ed',
+                        fontSize: 13,
+                        outline: 'none',
+                        lineHeight: 1.5,
+                        resize: 'vertical',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
+                      <button
+                        onClick={() => setEditingWorkoutId(null)}
+                        style={{ background: 'none', border: '1px solid #2a2a3a', borderRadius: 6, color: '#7a7a8a', fontSize: 11, padding: '3px 8px', cursor: 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleSaveEditWorkout(w.id)}
+                        style={{ background: '#b388ff', border: 'none', borderRadius: 6, color: '#0a0a0f', fontSize: 11, fontWeight: 600, padding: '3px 10px', cursor: 'pointer' }}
+                      >
+                        Save & Update Muscles
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  w.exercises?.map((line, i) => (
+                    <div key={i} style={{
+                      fontSize: 13, color: '#c8c8d8', lineHeight: 1.6,
+                      borderBottom: i < w.exercises.length - 1 ? '1px solid #1a1a24' : 'none',
+                      padding: '3px 0',
+                    }}>
+                      {line}
+                    </div>
+                  ))
+                )}
+
+                {/* Muscles Worked & Intensity */}
+                {hasMuscles ? (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #1a1a26' }}>
+                    <div style={{ fontSize: 10, color: '#6a6a7a', fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Muscles Worked
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {w.muscles.map((m, mi) => {
+                        const isPrimary = m.intensity >= 4;
+                        const isMod = m.intensity === 3;
+                        return (
+                          <span
+                            key={mi}
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: isPrimary ? '#00e676' : isMod ? '#b388ff' : '#a0a0b0',
+                              background: isPrimary ? '#00e67615' : isMod ? '#b388ff15' : '#181824',
+                              border: `1px solid ${isPrimary ? '#00e67635' : isMod ? '#b388ff35' : '#2a2a3a'}`,
+                              borderRadius: 6,
+                              padding: '2px 8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <span>{m.name}</span>
+                            <span style={{ opacity: 0.65, fontSize: 9 }}>{m.intensity}/5</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #1a1a26', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#7a7a8a' }}>
+                      {analyzing ? 'Analyzing muscles…' : 'Muscles not extracted yet'}
+                    </span>
+                    <button
+                      onClick={() => handleAnalyze(w.id)}
+                      disabled={analyzing}
+                      style={{
+                        background: '#1a1a2e',
+                        border: '1px solid #3a3a5a',
+                        color: '#b388ff',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        padding: '3px 8px',
+                        cursor: analyzing ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      ⚡ Extract Muscles
+                    </button>
+                  </div>
+                )}
               </div>
-              {w.exercises?.map((line, i) => (
-                <div key={i} style={{
-                  fontSize: 13, color: '#c8c8d8', lineHeight: 1.6,
-                  borderBottom: i < w.exercises.length - 1 ? '1px solid #1a1a24' : 'none',
-                  padding: '3px 0',
-                }}>
-                  {line}
-                </div>
-              ))}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

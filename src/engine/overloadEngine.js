@@ -66,16 +66,25 @@ export function getOverloadTargets(plannedExercises, workMap, sleep_h = 7) {
     } else if (previous) {
       const prev = previous.parsed;
       if (prev.isBodyweight) {
-        // Bodyweight progression (e.g. Pull-ups, Push-ups)
-        const nextTargetReps = prev.reps + 1;
-        targetAction = `Aim for ${prev.sets} × ${nextTargetReps} reps`;
-        overloadHint = `Last session (${previous.date}): ${prev.sets}×${prev.reps}. Try to add +1 rep on your first 2 sets!`;
+        // Bodyweight progression (e.g. Pull-ups, Push-ups, Dips)
+        if (prev.reps >= 15) {
+          targetAction = `Add backpack weight or slow 3s eccentric`;
+          overloadHint = `Last session (${previous.date}): ${prev.sets}×${prev.reps}. At 15+ bodyweight reps, load a backpack with books/weights or slow the negative down to 3s to spike hypertrophy.`;
+        } else {
+          const nextTargetReps = prev.reps + 1;
+          targetAction = `Aim for ${prev.sets} × ${nextTargetReps} reps`;
+          overloadHint = `Last session (${previous.date}): ${prev.sets}×${prev.reps}. Try to add +1 rep on your first 2 sets!`;
+        }
       } else {
-        // Dumbbell progression
-        if (prev.reps >= 12 && prev.weight_kg < 12) {
+        // Dumbbell progression (home dumbbells: 6, 8, 10, 12 kg)
+        if (prev.weight_kg >= 12) {
+          // At max home dumbbell weight (12kg)
+          targetAction = `Aim for ${prev.sets} × ${prev.reps + 2} @ 12kg (or 3s eccentric)`;
+          overloadHint = `Last session (${previous.date}): ${prev.sets}×${prev.reps} @ 12kg. You are at your max dumbbell! Overload via rep volume (target ${prev.reps + 2} reps) or 3s slow negatives.`;
+        } else if (prev.reps >= 12 && prev.weight_kg < 12) {
           const nextWeight = prev.weight_kg + 2;
           targetAction = `Try ${nextWeight}kg for Sets 1–2`;
-          overloadHint = `You hit 12 reps at ${prev.weight_kg}kg! Progress to ${nextWeight}kg for your first sets.`;
+          overloadHint = `You hit 12 reps at ${prev.weight_kg}kg! Progress to your ${nextWeight}kg dumbbell for your first sets.`;
         } else {
           targetAction = `Aim for ${prev.sets} × ${prev.reps + 2} @ ${prev.weight_kg}kg`;
           overloadHint = `Last session (${previous.date}): ${prev.sets}×${prev.reps} @ ${prev.weight_kg}kg. Push for +1–2 reps.`;
