@@ -117,9 +117,19 @@ export function getDynamicMaintenance(targets, healthEntry) {
   else if (goalType === 'recomp') deficitOrSurplus = -150;
 
   const baseMaintenance = Math.round(calTarget - deficitOrSurplus);
-  const activeBurn = getDayActiveCalories(healthEntry);
+  // Cap active burn to realistic daily bounds
+  const rawActiveBurn = getDayActiveCalories(healthEntry);
+  const activeBurn = Math.min(850, rawActiveBurn);
+
   const dynamicMaintenance = baseMaintenance + activeBurn;
-  const adjustedTarget = calTarget + activeBurn;
+
+  // For a Cut / Recomp, allocate a controlled portion of active burn (up to +450 kcal max)
+  // to ensure you stay in a guaranteed fat-loss deficit without blowing up the calorie budget
+  const budgetBoost = goalType === 'cut'
+    ? Math.min(450, Math.round(activeBurn * 0.7))
+    : Math.min(600, activeBurn);
+
+  const adjustedTarget = calTarget + budgetBoost;
 
   return {
     baseMaintenance,

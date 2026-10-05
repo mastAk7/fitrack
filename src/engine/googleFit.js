@@ -297,10 +297,19 @@ export async function fetchGoogleFitDailySummary(numDays = 7) {
     }
 
     const totalDistKm = Math.round((distanceMeters / 1000) * 10) / 10;
-    // If active burn from Google Fit is available, use it; otherwise estimate from steps & activities
+    // Calculate realistic active burn (excluding basal metabolic rate / BMR)
     const actTotalCals = activities.reduce((sum, a) => sum + (a.calories || 0), 0);
     const stepCals = Math.round(steps * 0.04);
-    const finalActiveCals = Math.max(Math.round(calories), actTotalCals + stepCals);
+
+    // Google Fit's calories.expended includes whole-day BMR (~1800 kcal).
+    // Extract true active burn above BMR if present:
+    const EST_DAILY_BMR = 1800;
+    const fitActiveAboveBmr = calories > EST_DAILY_BMR ? Math.round(calories - EST_DAILY_BMR) : 0;
+
+    // Active burn is strictly physical movement expenditure (steps + cardio)
+    const finalActiveCals = actTotalCals > 0
+      ? actTotalCals + Math.round(stepCals * 0.5)
+      : Math.max(stepCals, fitActiveAboveBmr);
 
     results[dateStr] = {
       date: dateStr,
