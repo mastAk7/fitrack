@@ -80,22 +80,40 @@ export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
     <div style={{
       position: 'fixed', inset: 0, background: '#000000aa',
       zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      backdropFilter: 'blur(4px)',
+      WebkitBackdropFilter: 'blur(4px)',
     }} onClick={onClose}>
       <div
         style={{
           width: '100%', maxWidth: 520,
+          maxHeight: '88vh',
+          display: 'flex', flexDirection: 'column',
           background: '#13131a', borderTop: '1px solid #1e1e2a',
-          borderRadius: '16px 16px 0 0', padding: '20px 20px 36px',
+          borderRadius: '16px 16px 0 0',
+          boxShadow: '0 -8px 32px rgba(0,0,0,0.6)',
+          overflow: 'hidden',
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#e8e8ed' }}>Sync Settings</span>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '16px 20px 14px', borderBottom: '1px solid #1e1e2a',
+          background: '#13131a', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#e8e8ed' }}>Sync & API Settings</span>
           <button
             onClick={onClose}
             style={{ background: 'none', border: 'none', color: '#7a7a8a', fontSize: 18, cursor: 'pointer', padding: '2px 6px' }}
           >✕</button>
         </div>
+
+        {/* Scrollable Modal Content */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          padding: '18px 20px 36px',
+        }}>
 
         {/* Token status */}
         <div style={{ marginBottom: 16 }}>
@@ -319,6 +337,7 @@ export default function SyncSettings({ onClose, onSyncNow, onClearAll }) {
               Clear All Logs & History
             </button>
           )}
+        </div>
         </div>
       </div>
     </div>
